@@ -3,25 +3,23 @@ import { MapContext } from "react-map-components-core";
 import { v4 as uuidv4 } from "uuid";
 
 import Button from "@mui/material/Button";
+import PropTypes from "prop-types";
 
 /**
- * MlOsmLayer returns a Button that will add a standard OSM tile layer to the maplibre-gl instance.
+ * Adds a standard OSM tile layer to the maplibre-gl instancereference by
+ * props.mapId
+ *
+ * @component
  */
 const MlOsmLayer = (props) => {
   const mapContext = useContext(MapContext);
   const mapRef = useRef(undefined);
 
   const [showLayer, setShowLayer] = useState(true);
-  const componentId = useRef(
-    (props.idPrefix ? props.idPrefix : "MlOsmLayer-") + uuidv4()
-  );
+  const componentId = useRef((props.idPrefix ? props.idPrefix : "MlOsmLayer-") + uuidv4());
   const initializedRef = useRef(false);
-  const sourceIdRef = useRef(
-    (props.idPrefix ? props.idPrefix : "MlOsmLayer-source-") + uuidv4()
-  );
-  const layerIdRef = useRef(
-    (props.idPrefix ? props.idPrefix : "MlOsmLayer-layer-") + uuidv4()
-  );
+  const sourceIdRef = useRef((props.idPrefix ? props.idPrefix : "MlOsmLayer-source-") + uuidv4());
+  const layerIdRef = useRef((props.idPrefix ? props.idPrefix : "MlOsmLayer-layer-") + uuidv4());
 
   useEffect(() => {
     let _componentId = componentId.current;
@@ -84,6 +82,31 @@ const MlOsmLayer = (props) => {
       OSM
     </Button>
   );
+};
+
+MlOsmLayer.propTypes = {
+  /**
+   * Id of the target MapLibre instance in mapContext
+   */
+  mapId: PropTypes.string,
+  /**
+   * Prefix of the component id this component uses when adding elements to the MapLibreGl-instance
+   */
+  idPrefix: PropTypes.string,
+  /**
+   * Options object that will be used as first parameter on the MapLibreGl.addSource call see MapLibre source options documentation.
+   */
+  sourceOptions: PropTypes.object,
+  /**
+   * Options object that will be used as first parameter on the MapLibreGl.addLayer call see MapLibre layer options documentation.
+   *
+   */
+  layerOptions: PropTypes.object,
+  /**
+   * The layerId of an existing layer this layer should be rendered visually beneath
+   * https://maplibre.org/maplibre-gl-js-docs/api/map/#map#addlayer - see "beforeId" property
+   */
+  insertBeforeLayer: PropTypes.string,
 };
 
 export default MlOsmLayer;
