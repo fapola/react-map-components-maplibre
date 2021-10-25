@@ -200,6 +200,7 @@ MlWmsLoader.propTypes = {
    * URL parameters that will be added when requesting tiles
    */
   layerUrlParameters: PropTypes.object,
+  wmsUrlParameters: PropTypes.object
 };
 
 export default MlWmsLoader;
