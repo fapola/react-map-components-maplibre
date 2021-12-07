@@ -19,6 +19,7 @@
     "@turf/turf": "^6.5.0",
     "jspdf": "^2.3.0",
     "maplibre-gl": "^1.13.0-rc.5",
+    "react-i18next": "^11.14.3",
     "three": "^0.126.1",
     "uuid": "^8.3.2",
     "wms-capabilities": "^0.5.1",

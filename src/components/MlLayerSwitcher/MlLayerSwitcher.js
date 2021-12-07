@@ -10,7 +10,7 @@ import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, Typography, Box } from "@mui/material";
 //Internal
-import { MapContext } from "react-map-components-core";
+import { MapContext } from "@mapcomponents/react-core";
 import LayerBox from "./components/LayerBox";
 import Divider from "@mui/material/Divider";
 import useMapState from "../../hooks/useMapState";
@@ -20,11 +20,19 @@ import LoadingOverlay from "../../ui_components/LoadingOverlay";
  *
  *
  */
-const MlLayerSwitcher = ({ baseSourceConfig, detaiLayerConfig, mapId = "map_1" }) => {
+const MlLayerSwitcher = (props) => {
   const mapContext = useContext(MapContext);
-  const showBaseSources = !!baseSourceConfig?.layers?.length;
-  const showDetailLayer = !!detaiLayerConfig?.layers?.length;
-  const { layers } = useMapState({ mapId });
+  const showBaseSources = !!props.baseSourceConfig?.layers?.length;
+  const showDetailLayer = !!props.detailLayerConfig?.layers?.length;
+  const { layers } = useMapState({
+    mapId: props.mapId,
+    watch: {
+      viewport: false,
+      layers: true,
+      sources: false,
+    },
+    filter: {},
+  });
   const [activeLayers, setActiveLayers] = useState([]);
   const [activeDetailLayers, setActiveDetailLayers] = useState([]);
   const { t } = useTranslation();
@@ -43,8 +51,8 @@ const MlLayerSwitcher = ({ baseSourceConfig, detaiLayerConfig, mapId = "map_1" }
         });
       };
 
-      baseSourceConfig.layers.forEach((config, i) => disableAllButFirst(config, i));
-      detaiLayerConfig.layers.forEach((config, i) => disableAllButFirst(config, i));
+      props.baseSourceConfig.layers.forEach((config, i) => disableAllButFirst(config, i));
+      props.detailLayerConfig.layers.forEach((config, i) => disableAllButFirst(config, i));
     }
     return () => {
       // This is the cleanup function, it is called when this react component is removed from react-dom
@@ -59,7 +67,7 @@ const MlLayerSwitcher = ({ baseSourceConfig, detaiLayerConfig, mapId = "map_1" }
     if (mapContext.map?.style?._layers) {
       let newactiveLayers = [];
       let newactiveDetailLayers = [];
-      baseSourceConfig.layers.forEach((layerConfig) => {
+      props.baseSourceConfig.layers.forEach((layerConfig) => {
         const layers = getLayerListFromId(layerConfig.layerId);
 
         layers.forEach((layer) => {
@@ -73,7 +81,7 @@ const MlLayerSwitcher = ({ baseSourceConfig, detaiLayerConfig, mapId = "map_1" }
           }
         });
       });
-      detaiLayerConfig.layers.forEach(({ layerId }) => {
+      props.detailLayerConfig.layers.forEach(({ layerId }) => {
         const visibilty = mapContext.map?.getLayoutProperty(layerId, "visibility");
         if (newactiveDetailLayers.indexOf(layerId) === -1 && visibilty === "visible") {
           newactiveDetailLayers.push(layerId);
@@ -90,7 +98,7 @@ const MlLayerSwitcher = ({ baseSourceConfig, detaiLayerConfig, mapId = "map_1" }
   };
 
   const handleDetailLayerBoxClick = (layerId) => {
-    const cfg = detaiLayerConfig.layers.find((e) => e.layerId === layerId);
+    const cfg = props.detailLayerConfig.layers.find((e) => e.layerId === layerId);
     if (cfg.linkedTo) {
       handleLayerBoxClick(cfg.linkedTo);
     }
@@ -108,7 +116,7 @@ const MlLayerSwitcher = ({ baseSourceConfig, detaiLayerConfig, mapId = "map_1" }
         ? "none"
         : "visible";
 
-    baseSourceConfig.layers.forEach((config, i) => {
+    props.baseSourceConfig.layers.forEach((config, i) => {
       let layers = getLayerListFromId(config.layerId);
       let visible = "none";
       if (config.layerId === id) {
@@ -134,54 +142,54 @@ const MlLayerSwitcher = ({ baseSourceConfig, detaiLayerConfig, mapId = "map_1" }
   return (
     <>
       <Card sx={{ zIndex: 101, position: "absolute", minWidth: "200px" }}>
-       
-          <CardContent>
-            {showBaseSources && (
-              <Box sx={{ minHeight: "150px" }}>
-                <Typography variant="h6">{t(baseSourceConfig.label || "Map type")}</Typography>
-                <Divider />
-                <Box sx={{ display: "flex", paddingTop: "1rem" }}>
-                  {baseSourceConfig.layers.map(({ src, label, layerId }) => {
-                    return (
-                      <LayerBox
-                        key={layerId}
-                        activeLayers={activeLayers}
-                        label={t(label)}
-                        id={layerId}
-                        src={src}
-                        handleLayerBoxClick={() => {
-                          handleLayerBoxClick(layerId);
-                        }}
-                      />
-                    );
-                  })}
-                </Box>
+        <CardContent>
+          {showBaseSources && (
+            <Box sx={{ minHeight: "150px" }}>
+              <Typography variant="h6">{t(props.baseSourceConfig.label || "Map type")}</Typography>
+              <Divider />
+              <Box sx={{ display: "flex", paddingTop: "1rem" }}>
+                {props.baseSourceConfig.layers.map(({ src, label, layerId }) => {
+                  return (
+                    <LayerBox
+                      mapId={props.mapId}
+                      key={layerId}
+                      activeLayers={activeLayers}
+                      label={t(label)}
+                      layerId={layerId}
+                      thumbnail={src}
+                      handleLayerBoxClick={() => {
+                        handleLayerBoxClick(layerId);
+                      }}
+                    />
+                  );
+                })}
               </Box>
-            )}
-            {showDetailLayer && (
-              <Box sx={{ minHeight: "150px" }}>
-                <Typography variant="h6">{t("Map details")}</Typography>
-                <Divider />
-                <Box sx={{ display: "flex", paddingTop: "1rem" }}>
-                  {detaiLayerConfig.layers.map(({ src, label, layerId }) => {
-                    return (
-                      <LayerBox
-                        activeLayers={activeDetailLayers}
-                        label={t(label)}
-                        id={layerId}
-                        key={layerId}
-                        src={src}
-                        handleLayerBoxClick={() => {
-                          handleDetailLayerBoxClick(layerId);
-                        }}
-                      />
-                    );
-                  })}
-                </Box>
+            </Box>
+          )}
+          {showDetailLayer && (
+            <Box sx={{ minHeight: "150px" }}>
+              <Typography variant="h6">{t("Map details")}</Typography>
+              <Divider />
+              <Box sx={{ display: "flex", paddingTop: "1rem" }}>
+                {props.detailLayerConfig.layers.map(({ src, label, layerId }) => {
+                  return (
+                    <LayerBox
+                      mapId={props.mapId}
+                      activeLayers={activeDetailLayers}
+                      label={t(label)}
+                      layerId={layerId}
+                      key={layerId}
+                      thumbnail={src}
+                      handleLayerBoxClick={() => {
+                        handleDetailLayerBoxClick(layerId);
+                      }}
+                    />
+                  );
+                })}
               </Box>
-            )}
-          </CardContent>{" "}
-     
+            </Box>
+          )}
+        </CardContent>{" "}
       </Card>
     </>
   );
@@ -198,7 +206,7 @@ MlLayerSwitcher.propTypes = {
       })
     ),
   }),
-  detaiLayerConfig: PropTypes.shape({
+  detailLayerConfig: PropTypes.shape({
     label: PropTypes.string,
     layers: PropTypes.arrayOf(
       PropTypes.shape({

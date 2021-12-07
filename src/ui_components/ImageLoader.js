@@ -4,56 +4,70 @@ import CircularProgress from '@mui/material/CircularProgress';
 
 import ErrorIcon from '@mui/icons-material/Error';
 import { Box } from "@mui/system";
-const ImageLoader = ({ src, width = "100%", height = "100%", className }) => {
+const ImageLoader = (props) => {
+  const [state, setState] = useState("loading");
 
-    const [state, setState] = useState('loading');
-
-    useEffect(() => {
-        if (!src) {
-            setState('error'); return;
+  useEffect(() => {
+    if (!props.src) {
+      setState("error");
+      return;
+    }
+    fetch(props.src)
+      .then(({ ok }) => {
+        if (ok) {
+          setState("ready");
+        } else {
+          setState("error");
         }
-        fetch(src).then(({ ok }) => {
-            if (ok) { setState('ready'); }
-            else {
-                setState('error')
-            }
-        }).catch((e) => {
-            console.error(e);
-            setState('error')
-        })
+      })
+      .catch((e) => {
+        console.error(e);
+        setState("error");
+      });
+  }, [props.src]);
 
-    }, [src])
+  const boxStyle = {
+    width: "100%",
+    height: "100%",
+    border: 2,
+    borderRadius: "8px",
+    textAlign: "center",
+    display: "flex",
+  };
 
-    const boxStyle = { width, height, border: 2, borderRadius: "8px", textAlign: "center", display: 'flex' }
+  const LoadingImage = () => {
+    return (
+      <Box className={props.className} sx={{ ...boxStyle, ...props.style }}>
+        <CircularProgress />
+      </Box>
+    );
+  };
 
-    const LoadingImage = () => {
-        return <Box className={className} style={boxStyle}><CircularProgress /></Box>
+  const ReadyImage = () => {
+    return (
+      <img className={props.className} style={{ ...boxStyle, ...props.style }} src={props.src} />
+    );
+  };
+  const ErrorImage = () => {
+    return (
+      <Box className={props.className} sx={{ boxStyle, ...props.style }}>
+        <ErrorIcon sx={{ display: "block", margin: "auto" }} />
+      </Box>
+    );
+  };
+
+  const renderImage = (state) => {
+    switch (state) {
+      case "ready":
+        return <ReadyImage />;
+      case "error":
+        return <ErrorImage />;
     }
 
-    const ReadyImage = () => {
-        return <img className={className} style={boxStyle} src={src} />
-    }
-    const ErrorImage = () => {
-        return <Box className={className} sx={boxStyle}><ErrorIcon sx={{ display: "block", margin: "auto" }} /></Box>
-    }
+    return <LoadingImage />;
+  };
 
-    const renderImage = (state) => {
-        
-        switch (state) {
-
-            case 'ready': return <ReadyImage />
-            case 'error': return <ErrorImage />;
-        }
-
-        return <LoadingImage />;
-
-
-    }
-
-
-    return <>{renderImage(state)}</>
-
-
-}
+  return <>{renderImage(state)}</>;
+};
 
 export default ImageLoader

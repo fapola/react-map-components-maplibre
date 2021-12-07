@@ -33,29 +33,28 @@ const Template = (args) => {
         sourceOptions={args.sourceOptions}
         layerId={args.layer2}
       />
-      <MlGeoJsonLayer type="line" geojson={geojson} layerId='geojson1'  />
-      <MlGeoJsonLayer type="line" geojson={sample_geojson_2} layerId='geojson2'  />
-
+      <MlGeoJsonLayer type="line" geojson={geojson} layerId="geojson1" />
+      <MlGeoJsonLayer type="line" geojson={sample_geojson_2} layerId="geojson2" />
       <MlLayerSwitcher
-       
         baseSourceConfig={{
           active: args.baseSourcesActive,
           layers: args.layers,
         }}
-        detaiLayerConfig={{
-          layers:  [ {
-            label: "GeoJson 1",
-            layerId: "geojson1",
-            src: "/assets/historic.png",
-            active: true,
-          }],
+        detailLayerConfig={{
+          layers: [
+            {
+              label: "GeoJson 1",
+              layerId: "geojson1",
+              src: "/assets/historic.png",
+              active: true,
+            },
+          ],
         }}
-        
       />
-    ;
+      ;
     </>
   );
-}
+};
 
 export const ExampleConfig = Template.bind({});
 ExampleConfig.parameters = {};
@@ -67,7 +66,6 @@ ExampleConfig.args = {
   sourceOptions: {
     minzoom: 13,
     maxzoom: 20,
-
   },
   baseSourcesActive: true,
   layers: [
@@ -75,18 +73,16 @@ ExampleConfig.args = {
       label: "Historic",
       layerId: "historic",
       src: "/assets/historic.png",
-      active: true,
-    }, {
+    },
+    {
       label: "Straßenkarte",
       layerId: "styleBase",
-      src: "",
-      active: false,
+      src: "/assets/osm.png",
     },
     {
       label: "DOP",
       layerId: "WMS_NW_DOP",
-      src: "",
-      active: false,
-    }
-  ]
+      src: "/assets/dop.png",
+    },
+  ],
 };
