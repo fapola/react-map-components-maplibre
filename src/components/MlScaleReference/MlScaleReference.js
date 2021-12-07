@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useContext } from "react";
 
-import { MapContext } from "react-map-components-core";
+import { MapContext } from "@mapcomponents/react-core";
 import { v4 as uuidv4 } from "uuid";
 
 const MlScaleReference = (props) => {
@@ -39,7 +39,6 @@ const MlScaleReference = (props) => {
     // initialize the layer and add it to the MapLibre-gl instance or do something else with it
     initializedRef.current = true;
     mapRef.current = mapContext.getMap(props.mapId);
-    console.log(componentId.current);
     mapRef.current.on("move", updateScale.current, componentId.current);
     updateScale.current();
   }, [mapContext.mapIds, mapContext, props.mapId]);
@@ -50,7 +49,7 @@ const MlScaleReference = (props) => {
     }
 
     zoomRef.current = mapRef.current.map.getZoom();
-    console.log(componentId.current);
+    // Calculation from MapLibre
     // A horizontal scale is imagined to be present at center of the map
     // Using spherical law of cosines approximation, the real distance is
     // found between the two coordinates.

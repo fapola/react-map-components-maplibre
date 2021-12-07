@@ -35,6 +35,5 @@ yarn-error.log*
 *.swp
 *.swo
 
-
-/docs
-!/docs/server.js
+/js-docs
+!/js-docs/server.js

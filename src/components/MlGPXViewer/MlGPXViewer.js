@@ -1,6 +1,6 @@
 import React, { useContext, useRef, useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import { MapContext } from "react-map-components-core";
+import { MapContext } from "@mapcomponents/react-core";
 import { bbox } from "@turf/turf";
 import Divider from "@mui/material/Divider";
 import Typography from "@mui/material/Typography";
@@ -206,7 +206,6 @@ const MlGPXViewer = (props) => {
     if (!mapRef.current) return;
     try {
       setMetaData([]);
-      console.log(gpxAsString);
       const domParser = new DOMParser();
       const gpxDoc = domParser.parseFromString(gpxAsString, "application/xml");
       const metadata = gpxDoc.querySelector("metadata");

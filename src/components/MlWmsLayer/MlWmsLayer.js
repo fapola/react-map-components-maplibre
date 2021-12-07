@@ -1,5 +1,5 @@
 import React, { useContext, useRef, useEffect } from "react";
-import { MapContext } from "react-map-components-core";
+import { MapContext } from "@mapcomponents/react-core";
 
 import PropTypes from "prop-types";
 import { v4 as uuidv4 } from "uuid";
@@ -50,6 +50,7 @@ const MlWmsLayer = (props) => {
   const componentId = useRef(props.layerId || ("MlWmsLayer-" + uuidv4()));
   const mapRef = useRef(null);
   const initializedRef = useRef(false);
+  const layerId = useRef(props.layerId || componentId.current);
 
   useEffect(() => {
     let _componentId = componentId.current;
@@ -72,9 +73,17 @@ const MlWmsLayer = (props) => {
 
     initializedRef.current = true;
 
+    let _propsUrlParams;
+    let _wmsUrl = props.url;
+    if (props.url.indexOf("?") !== -1) {
+      _propsUrlParams = props.url.split("?");
+      _wmsUrl = _propsUrlParams[0];
+    }
+    let _urlParamsFromUrl = new URLSearchParams(_propsUrlParams?.[1]);
     // first spread in default props manually to enable overriding a single parameter without replacing the whole default urlParameters object
     let urlParamsObj = {
       ...defaultProps.urlParameters,
+      ...Object.fromEntries(_urlParamsFromUrl),
       ...props.urlParameters,
     };
     let urlParams = new URLSearchParams(urlParamsObj);
@@ -82,10 +91,10 @@ const MlWmsLayer = (props) => {
       decodeURIComponent(urlParams.toString()) + "".replace(/%2F/g, "/").replace(/%3A/g, ":");
 
     mapRef.current.addSource(
-      componentId.current,
+      layerId.current,
       {
         type: "raster",
-        tiles: [props.url + "?" + urlParamsStr],
+        tiles: [_wmsUrl + "?" + urlParamsStr],
         tileSize: urlParamsObj.width,
         attribution: props.attribution,
         ...props.sourceOptions,
@@ -95,7 +104,7 @@ const MlWmsLayer = (props) => {
 
     mapRef.current.addLayer(
       {
-        id: componentId.current,
+        id: layerId.current,
         type: "raster",
         source: componentId.current,
         ...props.layerOptions,

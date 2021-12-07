@@ -1,7 +1,7 @@
 import React, { useContext, useState } from "react";
 import { mount, configure } from "enzyme";
 import { waitFor } from "@testing-library/react";
-import { MapContext, MapComponentsProvider } from "react-map-components-core";
+import { MapContext, MapComponentsProvider } from "@mapcomponents/react-core";
 import MlNavigationCompass from "./MlNavigationCompass";
 import MapLibreMap from "./../MapLibreMap/MapLibreMap";
 import maplibregl from "maplibre-gl/dist/maplibre-gl";
@@ -47,7 +47,8 @@ describe("<MlNavigationCompass>", () => {
       </MapComponentsProvider>
     );
 
-    await waitFor(() => expect(mockMapLibreMethods.on).toHaveBeenCalledTimes(1));
+    // MapLibreGlWrapper now subscribes to "data", "move" events on its own
+    await waitFor(() => expect(mockMapLibreMethods.on).toHaveBeenCalledTimes(3));
   });
 
   it("should deregister 1 event listener to the maplibre instance", async () => {
@@ -57,7 +58,8 @@ describe("<MlNavigationCompass>", () => {
       </MapComponentsProvider>
     );
 
-    expect(mockMapLibreMethods.on).toHaveBeenCalledTimes(1);
+    // MapLibreGlWrapper now subscribes to "data", "move" events on its own
+    expect(mockMapLibreMethods.on).toHaveBeenCalledTimes(3);
 
     wrapper.find(".toggle_layer_visible").simulate("click");
 

@@ -1,7 +1,13 @@
 {
   "name": "MlGeoJsonLayer",
-  "title": "GeoJSON Ebene",
+  "title": "GeoJSON layer",
   "description": "",
+  "i18n": {
+    "de": {
+      "title": "GeoJSON Ebene",
+      "description": ""
+    }
+  },
   "tags": [],
   "category": "",
   "type": "component",

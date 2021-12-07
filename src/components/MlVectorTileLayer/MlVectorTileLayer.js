@@ -1,5 +1,5 @@
 import React, { useContext, useRef, useEffect } from "react";
-import { MapContext } from "react-map-components-core";
+import { MapContext } from "@mapcomponents/react-core";
 import PropTypes from "prop-types";
 
 /**
@@ -75,7 +75,6 @@ const MlVectorTileLayer = (props) => {
 
   useEffect(() => {
     if (!mapRef.current) return;
-    console.log(props);
     // the MapLibre-gl instance (mapContext.map) is accessible here
     // initialize the layer and add it to the MapLibre-gl instance or do something else with it
     for (var key in props.layers) {

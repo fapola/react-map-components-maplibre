@@ -1,7 +1,8 @@
 {
-  "name": "react-map-components-maplibre",
-  "version": "0.1.1",
-  "private": true,
+  "name": "@mapcomponents/react-maplibre",
+  "version": "0.1.12",
+  "license": "MIT",
+  "private": false,
   "module": "dist/index.esm.js",
   "source": "src/index.js",
   "dependencies": {
@@ -11,21 +12,24 @@
     "@fontsource/roboto": "^4.5.1",
     "@mapbox/mapbox-gl-draw": "^1.2.0",
     "@mapbox/mapbox-gl-sync-move": "^0.3.0",
+    "@mapcomponents/react-core": "^0.1.1",
     "@mui/icons-material": "^5.0.1",
     "@mui/material": "5.0.0",
     "@mui/styles": "^5.0.1",
-    "@turf/turf": "^6.3.0",
+    "@turf/turf": "^6.5.0",
     "jspdf": "^2.3.0",
     "maplibre-gl": "^1.13.0-rc.5",
+<<<<<<< HEAD
     "react": "^17.0.1",
     "react-dom": "^17.0.1",
     "react-i18next": "^11.12.0",
     "react-map-components-core": "https://map_components:k3zW6xJmx-nqVCv_H1eq@repo.wheregroup.com/tweber/react-map-components-core.git#master",
     "react-scripts": "4.0.3",
     "react-spinners": "^0.10.6",
+=======
+>>>>>>> main
     "three": "^0.126.1",
     "uuid": "^8.3.2",
-    "web-vitals": "^0.2.4",
     "wms-capabilities": "^0.5.1",
     "xmldom": "^0.5.0"
   },
@@ -40,17 +44,18 @@
   "scripts": {
     "start": "start-storybook -p 6006 -s public",
     "build": "rollup -c",
-    "test": "react-scripts test --env=jsdom",
+    "test": "react-scripts test --env=jsdom --verbose --watchAll=true --coverage",
+    "test:noninteractive": "react-scripts test --verbose --watchAll=false --coverage",
     "test:generate-output": "react-scripts test --watchAll=false --json --outputFile=./src/.jest-test-results.json || true",
     "eject": "react-scripts eject",
     "storybook": "start-storybook -p 6006 -s public",
-    "build-storybook": "build-storybook -s public",
+    "build-storybook": "build-storybook -o docs-build -s public",
     "storybook-docs": "start-storybook --docs --no-manager-cache",
     "build-catalogue-meta": "node scripts/build-catalogue-meta.js",
     "build-catalogue-markdown-docs": "node scripts/build-catalogue-markdown-docs.js",
     "create-component": "./scripts/create-map-component.sh",
-    "docs-create": "jsdoc -r -c ./jsdoc.json -d docs/react-map-components-maplibre/$npm_package_version",
-    "docs-serve": "http-server ./docs/react-map-components-maplibre/$npm_package_version -p 3001"
+    "docs-create": "jsdoc -r -c ./jsdoc.json -d js-docs/react-map-components-maplibre/$npm_package_version",
+    "docs-serve": "http-server ./js-docs/react-map-components-maplibre/$npm_package_version -p 3001"
   },
   "jest": {
     "coveragePathIgnorePatterns": [
@@ -102,6 +107,7 @@
   "prettier": {
     "arrowParens": "always"
   },
+  "peerDependencies": {},
   "devDependencies": {
     "@babel/cli": "^7.15.4",
     "@babel/core": "^7.15.5",
@@ -112,16 +118,17 @@
     "@emotion/babel-plugin": "^11.3.0",
     "@rollup/plugin-babel": "^5.3.0",
     "@rollup/plugin-json": "^4.1.0",
+    "@rollup/plugin-url": "^6.1.0",
     "@storybook/addon-actions": "^6.3.12",
     "@storybook/addon-docs": "^6.3.12",
     "@storybook/addon-essentials": "^6.3.12",
-    "@storybook/addon-jest": "^6.3.12",
     "@storybook/addon-links": "^6.3.12",
     "@storybook/addons": "^6.3.12",
     "@storybook/node-logger": "^6.3.12",
     "@storybook/preset-create-react-app": "^3.1.5",
     "@storybook/react": "^6.3.12",
     "@storybook/theming": "^6.3.12",
+    "@svgr/rollup": "^5.5.0",
     "@testing-library/jest-dom": "^5.11.4",
     "@testing-library/react": "^11.1.0",
     "@testing-library/user-event": "^12.1.10",
@@ -135,6 +142,10 @@
     "jest-enzyme": "^7.1.2",
     "jest-webgl-canvas-mock": "^0.2.3",
     "puppeteer": "^8.0.0",
+    "react": "^17.0.1",
+    "react-dom": "^17.0.1",
+    "react-scripts": "4.0.3",
+    "react-spinners": "^0.10.6",
     "react-test-renderer": "^17.0.2",
     "rollup-plugin-delete": "^2.0.0",
     "rollup-plugin-import-css": "^3.0.2",
@@ -144,6 +155,7 @@
     "taffydb": "^2.7.3",
     "ts-jest": "^26.5.3",
     "typescript": "^4.4.2",
+    "web-vitals": "^0.2.4",
     "webpack-merge": "^5.8.0"
   }
 }

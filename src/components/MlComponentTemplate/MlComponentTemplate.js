@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useContext } from "react";
 import PropTypes from "prop-types";
 
-import { MapContext } from "react-map-components-core";
+import { MapContext } from "@mapcomponents/react-core";
 import { v4 as uuidv4 } from "uuid";
 
 /**
@@ -46,7 +46,6 @@ const MlComponentTemplate = (props) => {
     mapRef.current = mapContext.getMap(props.mapId);
 
     mapRef.current.setCenter([7.132122000552613, 50.716405378037706]);
-    console.log(componentId.current);
   }, [mapContext.mapIds, mapContext, props.mapId]);
 
   return <></>;

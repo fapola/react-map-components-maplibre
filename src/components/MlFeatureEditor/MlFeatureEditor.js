@@ -8,7 +8,7 @@ import CustomSelectMode from "./custom-select-mode";
 import CustomDirectSelectMode from "./custom-direct-select-mode";
 import { v4 as uuidv4 } from "uuid";
 
-import { MapContext } from "react-map-components-core";
+import { MapContext } from "@mapcomponents/react-core";
 
 function MlFeatureEditor(props) {
   const mapRef = useRef(null);
@@ -30,7 +30,6 @@ function MlFeatureEditor(props) {
   };
 
   const mouseUpHandler = () => {
-    console.log("mouseup");
     setMouseUpTrigger(Math.random());
   };
 

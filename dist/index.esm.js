@@ -1,15 +1,21 @@
-import React, { useRef, useContext, useEffect, useState, useCallback } from 'react';
+import React__default, { useRef, useContext, useEffect, useState, useCallback, createElement } from 'react';
 import PropTypes from 'prop-types';
-import { MapContext } from 'react-map-components-core';
+import { MapContext } from '@mapcomponents/react-core';
 import maplibregl from 'maplibre-gl/dist/maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import maplibregl$1 from 'maplibre-gl/dist/maplibre-gl-unminified';
 import { v4 } from 'uuid';
 import Button from '@mui/material/Button';
-import maplibregl$2, { Popup } from 'maplibre-gl';
+import maplibregl$1, { Popup } from 'maplibre-gl';
 import jsPDF from 'jspdf';
 import PrinterIcon from '@mui/icons-material/Print';
-import { lineString, length, lineChunk, bbox } from '@turf/turf';
+import { lineString, length, lineChunk, point, bbox } from '@turf/turf';
+import ButtonGroup from '@mui/material/ButtonGroup';
+import ControlPointIcon from '@mui/icons-material/ControlPoint';
+import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
+import GpsFixedIcon from '@mui/icons-material/GpsFixed';
+import _styled from '@emotion/styled/base';
+import { css } from '@emotion/css';
+import RoomIcon from '@mui/icons-material/Room';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 import MapboxDraw from '@mapbox/mapbox-gl-draw';
 import Point from '@mapbox/point-geometry';
@@ -130,6 +136,42 @@ function _defineProperty(obj, key, value) {
   return obj;
 }
 
+function _objectWithoutPropertiesLoose(source, excluded) {
+  if (source == null) return {};
+  var target = {};
+  var sourceKeys = Object.keys(source);
+  var key, i;
+
+  for (i = 0; i < sourceKeys.length; i++) {
+    key = sourceKeys[i];
+    if (excluded.indexOf(key) >= 0) continue;
+    target[key] = source[key];
+  }
+
+  return target;
+}
+
+function _objectWithoutProperties(source, excluded) {
+  if (source == null) return {};
+
+  var target = _objectWithoutPropertiesLoose(source, excluded);
+
+  var key, i;
+
+  if (Object.getOwnPropertySymbols) {
+    var sourceSymbolKeys = Object.getOwnPropertySymbols(source);
+
+    for (i = 0; i < sourceSymbolKeys.length; i++) {
+      key = sourceSymbolKeys[i];
+      if (excluded.indexOf(key) >= 0) continue;
+      if (!Object.prototype.propertyIsEnumerable.call(source, key)) continue;
+      target[key] = source[key];
+    }
+  }
+
+  return target;
+}
+
 function _slicedToArray(arr, i) {
   return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest();
 }
@@ -205,14 +247,229 @@ function _nonIterableRest() {
   throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
 }
 
+var _excluded = ["lng", "lat"];
+/**
+ * Creates a MapLibre-gl-js instance and offers all of the native MapLibre functions and properties as well as additional functionality such as element registration & cleanup and more events.
+ *
+ * @param {object} props
+ *
+ * @class
+ */
+
 var MapLibreGlWrapper = function MapLibreGlWrapper(props) {
   var _this = this;
 
+  // closure variable to safely point to the object context of the current MapLibreGlWrapper instance
   var self = this; // element registration and cleanup on a component level is experimental
 
-  this.registeredElements = {};
-  this.baseLayers = [];
-  this.firstSymbolLayer = undefined;
+  this.registeredElements = {}; // array of base layer ids, all layers that have been added by the style passed to the MapLibreGl coonstructor
+
+  this.baseLayers = []; // layer id of the first symbol layer
+
+  this.firstSymbolLayer = undefined; // event handlers registered in MapLibreGlWrapper
+
+  this.eventHandlers = {
+    layerchange: [],
+    viewportchange: []
+  }; // functions and properties provided by the wrapper
+  // Add new functions and properties introduced by the wrapper to this object to prevent collisions due to future MapLibre API changes
+
+  this.wrapper = {
+    /**
+     * Subscribe the given event handler to an event
+     *
+     * @param {string} eventName
+     * @param {function} handler
+     * @param {object} options
+     * @param {string} componentId
+     * @returns {undefined}
+     */
+    on: function on(eventName, handler, options, componentId) {
+      if (!self.eventHandlers[eventName]) return;
+
+      if (typeof options === 'string') {
+        componentId = options;
+        options = {};
+      }
+
+      self.eventHandlers[eventName].push({
+        handler: handler,
+        options: options
+      });
+      var _arguments = [eventName, handler];
+
+      if (componentId && typeof componentId === "string") {
+        self.initRegisteredElements(componentId);
+        self.registeredElements[componentId].wrapperEvents.push(_arguments);
+      }
+    },
+
+    /**
+     * Unsubscribes the given event handler from an event
+     *
+     * @param {string} eventName
+     * @param {function} handler
+     * @returns {undefined}
+     */
+    off: function off(eventName, handler) {
+      if (!self.eventHandlers[eventName]) return;
+      self.eventHandlers[eventName] = self.eventHandlers[eventName].filter(function (item) {
+        if (!Object.is(item.handler, handler)) {
+          return item;
+        }
+      });
+    },
+
+    /**
+     * Calls all event handlers that have been subscribed to the given eventName
+     *
+     * @param {string} eventName
+     * @param {object} context
+     * @returns {undefined}
+     */
+    fire: function fire(eventName, context) {
+      if (!self.eventHandlers[eventName]) return;
+      var scope = context || window;
+      var event = new Event(eventName);
+      event.data = self;
+      self.eventHandlers[eventName].forEach(function (item) {
+        item.handler.call(scope, event);
+      });
+    },
+
+    /**
+     * Array containing an object for each layer in the MapLibre instance providing information on visibility, loading state, order, paint & layout properties
+     */
+    layerState: {},
+
+    /**
+     * Maps layerIds to layerState in JSON string form for quick deep comparisons
+     */
+    layerStateStrings: {},
+
+    /**
+     * Previous Version of layerStateString
+     */
+    oldLayerStateStrings: {},
+
+    /**
+     * Builds the layer info object for a given layer id
+     *
+     * @param {string} layer
+     * @returns object
+     */
+    buildLayerObject: function buildLayerObject(layer) {
+      var _layer$paint, _layer$layout;
+
+      //if (self.baseLayers.indexOf(layer.id) === -1) {
+      var paint = {};
+      var values = (_layer$paint = layer.paint) === null || _layer$paint === void 0 ? void 0 : _layer$paint._values;
+      Object.keys(values || {}).map(function (propName) {
+        paint[propName] = typeof values[propName].value !== "undefined" ? values[propName].value.value : values[propName];
+      });
+      var layout = {};
+      values = (_layer$layout = layer.layout) === null || _layer$layout === void 0 ? void 0 : _layer$layout._values;
+      Object.keys(values || {}).map(function (propName) {
+        layout[propName] = typeof values[propName].value !== "undefined" ? values[propName].value.value : values[propName];
+      });
+      return {
+        id: layer.id,
+        type: layer.type,
+        visible: layer.visibility === "none" ? false : true,
+        baseLayer: self.baseLayers.indexOf(layer.id) !== -1,
+        paint: paint,
+        layout: layout //filter: layers[layerId].filter,
+        //layout: layers[layerId].layout,
+        //maxzoom: layers[layerId].maxzoom,
+        //metadata: layers[layerId].metadata,
+        //minzoom: layers[layerId].minzoom,
+        //paint: layers[layerId].paint.get(),
+        //source: layers[layerId].source,
+        //sourceLayer: layers[layerId].sourceLayer,
+
+      }; //}
+    },
+
+    /**
+     * Returns an array of layer state info objects for all layers in the MapLibre instance
+     *
+     * @returns array
+     */
+    buildLayerObjects: function buildLayerObjects() {
+      return self.style._order.map(function (layerId) {
+        return self.wrapper.buildLayerObject(self.map.style._layers[layerId]);
+      }).filter(function (n) {
+        return n;
+      });
+    },
+
+    /**
+     * Updates layer state info objects
+     */
+    refreshLayerState: function refreshLayerState() {
+      self.wrapper.layerState = self.wrapper.buildLayerObjects();
+      self.wrapper.layerStateStrings = self.wrapper.layerState.map(function (el) {
+        return JSON.stringify(el);
+      });
+    },
+
+    /**
+     * Object containing information on the current viewport state
+     */
+    viewportState: {},
+
+    /**
+     * The same data as viewportState in JSON string form for quick deep comparisons
+     */
+    viewportStateString: "{}",
+
+    /**
+     * Previous version of viewportStateString
+     */
+    oldViewportStateString: "{}",
+    getViewport: function getViewport() {
+      return typeof self.map.getCenter === 'function' ? {
+        center: function (_ref) {
+          var lng = _ref.lng,
+              lat = _ref.lat,
+              rest = _objectWithoutProperties(_ref, _excluded);
+
+          return {
+            lng: lng,
+            lat: lat
+          };
+        }(self.map.getCenter()),
+        zoom: self.map.getZoom(),
+        bearing: self.map.getBearing(),
+        pitch: self.map.getPitch()
+      } : {};
+    },
+    viewportRefreshEnabled: true,
+    viewportRefreshWaiting: false,
+    refreshViewport: function refreshViewport(force) {
+      if (self.wrapper.viewportRefreshEnabled || force) {
+        self.wrapper.viewportRefreshEnabled = false;
+        self.wrapper.viewportState = self.wrapper.getViewport();
+        self.wrapper.viewportStateString = JSON.stringify(self.wrapper.viewportState);
+        setTimeout(function () {
+          self.wrapper.viewportRefreshEnabled = true;
+
+          if (self.wrapper.viewportRefreshWaiting) {
+            self.wrapper.viewportRefreshWaiting = false;
+            self.wrapper.refreshViewport();
+          }
+        }, 50);
+      } else {
+        self.wrapper.viewportRefreshWaiting = true;
+      }
+    }
+  };
+  /**
+   * Initializes an empty registered elements object for the given componentId
+   *
+   * @param {string} componentId
+   * @param {boolean} force
+   */
 
   this.initRegisteredElements = function (componentId, force) {
     if (typeof self.registeredElements[componentId] === "undefined" || force !== "undefined" && force) {
@@ -221,10 +478,20 @@ var MapLibreGlWrapper = function MapLibreGlWrapper(props) {
         sources: [],
         images: [],
         events: [],
-        controls: []
+        controls: [],
+        wrapperEvents: []
       };
     }
   };
+  /**
+   * Overrides MapLibre-gl-js addLayer function providing an additional componentId parameter for the wrapper element registration.
+   *
+   * @param {object} layer
+   * @param {string} beforeId
+   * @param {string} componentId
+   * @returns {undefined}
+   */
+
 
   this.addLayer = function (layer, beforeId, componentId) {
     if (!self.map.style) {
@@ -242,6 +509,16 @@ var MapLibreGlWrapper = function MapLibreGlWrapper(props) {
 
     self.map.addLayer(layer, beforeId);
   };
+  /**
+   * Overrides MapLibre-gl-js addSource function providing an additional componentId parameter for the wrapper element registration.
+   *
+   * @param {string} sourceId
+   * @param {object} source
+   * @param {object} options
+   * @param {string} componentId
+   * @returns {undefined}
+   */
+
 
   this.addSource = function (sourceId, source, options, componentId) {
     if (!self.map.style) {
@@ -259,6 +536,16 @@ var MapLibreGlWrapper = function MapLibreGlWrapper(props) {
 
     self.map.addSource(sourceId, source, options);
   };
+  /**
+   * Overrides MapLibre-gl-js addImage function providing an additional componentId parameter for the wrapper element registration.
+   *
+   * @param {string} id
+   * @param {*} image
+   * @param {*} ref
+   * @param {string} componentId
+   * @returns {undefined}
+   */
+
 
   this.addImage = function (id, image, ref, componentId) {
     if (!self.map.style) {
@@ -276,6 +563,16 @@ var MapLibreGlWrapper = function MapLibreGlWrapper(props) {
 
     self.map.addImage(id, image, ref);
   };
+  /**
+   * Overrides MapLibre-gl-js on function providing an additional componentId parameter for the wrapper element registration.
+   *
+   * @param {string} type
+   * @param {string} layerId
+   * @param {function} listener
+   * @param {string} componentId
+   * @returns {undefined}
+   */
+
 
   this.on = function (type, layerId, listener, componentId) {
     var _self$map;
@@ -297,6 +594,14 @@ var MapLibreGlWrapper = function MapLibreGlWrapper(props) {
 
     (_self$map = self.map).on.apply(_self$map, _toConsumableArray(_arguments));
   };
+  /**
+   * Overrides MapLibre-gl-js addControl function providing an additional componentId parameter for the wrapper element registration.
+   *
+   * @param {object} control
+   * @param {string} position
+   * @param {string} componentId
+   */
+
 
   this.addControl = function (control, position, componentId) {
     if (componentId && typeof componentId === "string") {
@@ -305,13 +610,15 @@ var MapLibreGlWrapper = function MapLibreGlWrapper(props) {
     }
 
     self.map.addControl(control, position);
-  }; // cleanup function that remove anything that has been added to the maplibre instance referenced with componentId
-  // be aware that this function only works with explicitly added elements e.g. sources implizitly added by addLayer calls still require manual removal
+  };
+  /**
+   * Removes anything that has been added to the maplibre instance referenced with componentId
+   *
+   * @param {string} componentId
+   */
 
 
   this.cleanup = function (componentId) {
-    //console.log("cleanup " + componentId);
-    //console.log(self.registeredElements[componentId]);
     if (self.map.style && typeof self.registeredElements[componentId] !== "undefined") {
       // cleanup layers
       self.registeredElements[componentId].layers.forEach(function (item) {
@@ -340,6 +647,12 @@ var MapLibreGlWrapper = function MapLibreGlWrapper(props) {
 
       self.registeredElements[componentId].controls.forEach(function (item) {
         self.map.removeControl(item);
+      }); // cleanup wrapper events
+
+      self.registeredElements[componentId].wrapperEvents.forEach(function (item) {
+        var _self$wrapper;
+
+        (_self$wrapper = self.wrapper).off.apply(_self$wrapper, _toConsumableArray(item));
       });
       self.initRegisteredElements(componentId, true);
     }
@@ -410,7 +723,7 @@ var MapLibreGlWrapper = function MapLibreGlWrapper(props) {
   }); // initialize the MapLibre-gl instance
 
   var initializeMapLibre = /*#__PURE__*/function () {
-    var _ref = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee() {
+    var _ref2 = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee() {
       return regeneratorRuntime.wrap(function _callee$(_context) {
         while (1) {
           switch (_context.prev = _context.next) {
@@ -422,7 +735,11 @@ var MapLibreGlWrapper = function MapLibreGlWrapper(props) {
 
               _context.next = 3;
               return fetch(props.mapOptions.style).then(function (response) {
-                return response.json();
+                if (response.ok) {
+                  return response.json();
+                } else {
+                  throw new Error('error loading map style.json');
+                }
               }).then(function (styleJson) {
                 styleJson.layers.forEach(function (item) {
                   self.baseLayers.push(item.id);
@@ -433,17 +750,33 @@ var MapLibreGlWrapper = function MapLibreGlWrapper(props) {
                 });
                 self.styleJson = styleJson;
                 props.mapOptions.style = styleJson;
+              }).catch(function (error) {
+                console.log(error);
               });
 
             case 3:
               self.map = new maplibregl.Map(props.mapOptions);
               self.addNativeMaplibreFunctionsAndProps();
+              self.wrapper.refreshViewport(true);
+              self.wrapper.fire("viewportchange");
+              self.map.on("move", function () {
+                self.wrapper.refreshViewport();
+
+                if (self.wrapper.viewportStateString !== self.wrapper.oldViewportStateString) {
+                  self.wrapper.oldViewportStateString = self.wrapper.viewportStateString;
+                  self.wrapper.fire("viewportchange");
+                }
+              });
+              self.map.on("data", function () {
+                self.wrapper.refreshLayerState();
+                self.wrapper.fire("layerchange");
+              });
 
               if (typeof props.onReady === "function") {
                 props.onReady(self.map, self);
               }
 
-            case 6:
+            case 10:
             case "end":
               return _context.stop();
           }
@@ -452,7 +785,7 @@ var MapLibreGlWrapper = function MapLibreGlWrapper(props) {
     }));
 
     return function initializeMapLibre() {
-      return _ref.apply(this, arguments);
+      return _ref2.apply(this, arguments);
     };
   }();
 
@@ -460,10 +793,14 @@ var MapLibreGlWrapper = function MapLibreGlWrapper(props) {
 };
 
 /**
- * The MapLibreMap component will create the MapLibre-gl instance and set the reference at MapContext.map after the MapLibre-gl load event has fired. That way (since the map refence is created using the useState hook) you can use the react useEffect hook in depending components to access the MapLibre-gl instance like ```useEffect(() => { \/** code *\/ }, [mapContext.map])``` and be sure the code is executed once the MapLibre-gl instance has fired the load event.
+ * Creates a MapLibreGlWrapper instance and registers it in MapContext
+ * after the MapLibre-gl load event has fired.
  *
  * MapLibreMap returns the html node that will be used by MapLibre-gl to render the map.
- * This Component must be kept unaware of any related components that interact with the MapLibre-gl instance.
+ * This Component must be kept unaware of any related components that interact with the MapLibre-gl
+ * instance.
+ *
+ * @component
  */
 
 var MapLibreMap = function MapLibreMap(props) {
@@ -487,16 +824,10 @@ var MapLibreMap = function MapLibreMap(props) {
   }, []);
   useEffect(function () {
     if (mapContainer.current) {
-      // TODO: adjust defaults
-      var defaultOptions = {
-        lng: 8.607,
-        lat: 53.1409349,
-        zoom: 10,
-        container: mapContainer.current,
-        accessToken: "pk.eyJ1IjoibWF4dG9iaSIsImEiOiJjaW1rcWQ5bWMwMDJvd2hrbWZ2ZTBhcnM5In0.NcGt5NmLP5Q1WC7P5u6qUA"
-      };
       map.current = new MapLibreGlWrapper({
-        mapOptions: _objectSpread2(_objectSpread2({}, defaultOptions), mapOptions),
+        mapOptions: _objectSpread2({
+          container: mapContainer.current
+        }, mapOptions),
         onReady: function onReady(map, wrapper) {
           map.once("load", function () {
             if (props.mapId) {
@@ -512,67 +843,43 @@ var MapLibreMap = function MapLibreMap(props) {
     } // eslint-disable-next-line react-hooks/exhaustive-deps
 
   }, [mapContainer]);
-  return /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React__default.createElement("div", {
     ref: mapContainer,
     className: "mapContainer"
   });
 };
 
+MapLibreMap.defaultProps = {
+  mapId: undefined,
+  options: {
+    lng: 8.607,
+    lat: 53.1409349,
+    zoom: 10,
+    accessToken: "pk.eyJ1IjoibWF4dG9iaSIsImEiOiJjaW1rcWQ5bWMwMDJvd2hrbWZ2ZTBhcnM5In0.NcGt5NmLP5Q1WC7P5u6qUA"
+  }
+};
 MapLibreMap.propTypes = {
+  /**
+   * Id of the MapLibreGl(Wrapper) instance in mapContext
+   */
+  mapId: PropTypes.string,
+
+  /**
+   * Config object that is passed to the MapLibreGl constructor as first parameter.
+   * See https://maplibre.org/maplibre-gl-js-docs/api/map/ for a formal documentation of al
+   * available properties.
+   */
   options: PropTypes.object
 };
 
 /**
- * The MapLibreMap component will create the MapLibre-gl instance and set the reference at MapContext.map after the MapLibre-gl load event has fired. That way (since the map refence is created using the useState hook) you can use the react useEffect hook in depending components to access the MapLibre-gl instance like ```useEffect(() => { \/** code *\/ }, [mapContext.map])``` and be sure the code is executed once the MapLibre-gl instance has fired the load event.
+ * TODO: Add short & useful description
  *
- * MapLibreMap returns the html node that will be used by MapLibre-gl to render the map.
- * This Component must be kept unaware of any related components that interact with the MapLibre-gl instance.
+ * @param {object} props
+ * @param {string} props.mapId Id of the target MapLibre instance in mapContext
+ *
+ * @component
  */
-
-var MapLibreMap$1 = function MapLibreMap(props) {
-  var map = useRef(null);
-  var mapContainer = useRef(null);
-  var mapContext = useContext(MapContext);
-  var mapOptions = props.options;
-  useEffect(function () {
-    return function () {
-      mapContext.removeMap(props.mapId);
-      map.current.remove();
-      map.current = null;
-    };
-  }, []);
-  useEffect(function () {
-    if (mapContainer.current) {
-      // TODO: adjust defaults
-      var defaultOptions = {
-        lng: 8.607,
-        lat: 53.1409349,
-        zoom: 10,
-        container: mapContainer.current,
-        accessToken: "pk.eyJ1IjoibWF4dG9iaSIsImEiOiJjaW1rcWQ5bWMwMDJvd2hrbWZ2ZTBhcnM5In0.NcGt5NmLP5Q1WC7P5u6qUA"
-      };
-      map.current = new maplibregl$1.Map(_objectSpread2(_objectSpread2({}, defaultOptions), mapOptions));
-      map.current.on("load", function () {
-        if (props.mapId) {
-          mapContext.registerMap(props.mapId, map.current);
-        } else {
-          mapContext.setMap(map.current);
-        }
-      }); // TODO: remove this line
-
-      window.map = map.current;
-    } // eslint-disable-next-line react-hooks/exhaustive-deps
-
-  }, [mapContainer]);
-  return /*#__PURE__*/React.createElement("div", {
-    ref: mapContainer,
-    className: "mapContainer"
-  });
-};
-
-MapLibreMap$1.propTypes = {
-  options: PropTypes.object
-};
 
 var MlComponentTemplate = function MlComponentTemplate(props) {
   // Use a useRef hook to reference the layer object to be able to access it later inside useEffect hooks
@@ -592,41 +899,38 @@ var MlComponentTemplate = function MlComponentTemplate(props) {
         mapRef.current.cleanup(_componentId);
         mapRef.current = undefined;
       }
+
+      initializedRef.current = false;
     };
   }, []);
   useEffect(function () {
-    if (!mapContext.mapExists(props.mapId) || initializedRef.current) return; // the MapLibre-gl instance (mapContext.map) is accessible here
+    if (!mapContext.mapExists(props.mapId) || initializedRef.current) return; // the MapLibre-gl instance (mapContext.getMap(props.mapId)) is accessible here
     // initialize the layer and add it to the MapLibre-gl instance or do something else with it
 
     initializedRef.current = true;
     mapRef.current = mapContext.getMap(props.mapId);
     mapRef.current.setCenter([7.132122000552613, 50.716405378037706]);
-    console.log(componentId.current);
   }, [mapContext.mapIds, mapContext, props.mapId]);
-  return /*#__PURE__*/React.createElement(React.Fragment, null);
+  return /*#__PURE__*/React__default.createElement(React__default.Fragment, null);
 };
 
-var paintDefaults = {
-  "fill-extrusion-color": "hsl(196, 61%, 83%)",
-  "fill-extrusion-height": {
-    property: "render_height",
-    type: "identity"
-  },
-  "fill-extrusion-base": {
-    property: "render_min_height",
-    type: "identity"
-  },
-  "fill-extrusion-opacity": 1
+MlComponentTemplate.defaultProps = {
+  mapId: undefined
 };
+MlComponentTemplate.propTypes = {
+  /**
+   * Id of the target MapLibre instance in mapContext
+   */
+  mapId: PropTypes.string
+};
+
 /**
- * MlCompositeLayer returns a Button that will add a standard OSM tile layer to the maplibre-gl instance.
+ * Adds a fill extrusion layer to the MapLibre instance reference by props.mapId
+ *
+ * @Component
  */
 
-var MlCompositeLayer = function MlCompositeLayer(_ref) {
-  var paint = _ref.paint,
-      sourceId = _ref.sourceId,
-      sourceLayer = _ref.sourceLayer,
-      minZoom = _ref.minZoom;
+var MlFillExtrusionLayer = function MlFillExtrusionLayer(props) {
   var mapContext = useContext(MapContext);
   var mapRef = useRef(null);
 
@@ -635,76 +939,122 @@ var MlCompositeLayer = function MlCompositeLayer(_ref) {
       showLayer = _useState2[0],
       setShowLayer = _useState2[1];
 
-  var layerName = "building-3d";
-
-  var componentCleanup = function componentCleanup() {
-    if (mapRef.current) {
-      if (mapRef.current.style && mapRef.current.getLayer(layerName)) {
-        mapRef.current.removeLayer(layerName);
-      }
-
-      if (mapRef.current.style && mapRef.current.getSource(layerName)) {
-        mapRef.current.removeSource(layerName);
-      }
-
-      mapRef.current = null;
-    }
-  };
-
+  var componentId = useRef((props.idPrefix ? props.idPrefix : "MlFillExtrusionLayer-") + v4());
+  var initializedRef = useRef(false);
+  var layerId = useRef(props.layerId || "MlFillExtrusionLayer-" + v4());
   useEffect(function () {
-    return componentCleanup;
+    var _componentId = componentId.current;
+    return function () {
+      if (mapRef.current) {
+        mapRef.current.cleanup(_componentId);
+        mapRef.current = undefined;
+      }
+
+      initializedRef.current = false;
+    };
   }, []);
   useEffect(function () {
-    if (!mapContext.map) return; // cleanup fragments left in MapLibre-gl from previous component uses
+    if (!mapContext.mapExists(props.mapId) || initializedRef.current) return; // the MapLibre-gl instance (mapContext.getMap(props.mapId)) is accessible here
+    // initialize the layer and add it to the MapLibre-gl instance or do something else with it
 
-    componentCleanup();
+    initializedRef.current = true;
+    mapRef.current = mapContext.getMap(props.mapId);
+    var lastLabelLayerId = undefined;
 
-    var addCompositeLayer = function addCompositeLayer() {
-      if (!mapContext.map.getLayer(layerName)) {
-        var lastLabelLayerId = false;
+    if (mapContext.map.getLayer("waterway-name")) {
+      lastLabelLayerId = "waterway-name";
+    }
 
-        if (mapContext.map.getLayer("waterway-name")) {
-          lastLabelLayerId = "waterway-name";
-        }
+    if (mapContext.map.getLayer("poi_label")) {
+      lastLabelLayerId = "poi_label";
+    }
 
-        if (mapContext.map.getLayer("poi_label")) {
-          lastLabelLayerId = "poi_label";
-        }
-
-        mapContext.map.addLayer({
-          id: layerName,
-          type: "fill-extrusion",
-          source: sourceId || "openmaptiles",
-          "source-layer": sourceLayer || "building",
-          minzoom: minZoom || 14,
-          paint: _objectSpread2(_objectSpread2({}, paintDefaults), paint)
-        }, lastLabelLayerId);
-      }
-    };
-
-    addCompositeLayer();
-  }, [mapContext.map, minZoom, paint, sourceId, sourceLayer]);
+    mapContext.map.addLayer({
+      id: layerId.current,
+      type: "fill-extrusion",
+      source: props.sourceId || "openmaptiles",
+      "source-layer": props.sourceLayer || "building",
+      minzoom: props.minZoom || 14,
+      paint: _objectSpread2({}, props.paint)
+    }, props.insertBeforeLayer || lastLabelLayerId, componentId.current);
+  }, [mapContext, props.insertBeforeLayer, props.mapId, props.minZoom, props.paint, props.sourceId, props.sourceLayer]);
   useEffect(function () {
-    if (!mapContext.map) return;
-    mapRef.current = mapContext.map;
+    if (!initializedRef.current) return; // toggle layer visibility by changing the layout object's visibility property
 
-    if (mapRef.current.getLayer(layerName)) {
-      // toggle layer visibility by changing the layout object's visibility property
-      if (showLayer) {
-        mapRef.current.setLayoutProperty(layerName, "visibility", "visible");
-      } else {
-        mapRef.current.setLayoutProperty(layerName, "visibility", "none");
-      }
-    } //
-
+    mapRef.current.setLayoutProperty(layerId.current, "visibility", showLayer ? "visible" : "none");
   }, [showLayer, mapContext]);
-  return /*#__PURE__*/React.createElement(Button, {
+  return /*#__PURE__*/React__default.createElement(Button, {
     color: "primary",
     variant: showLayer ? "contained" : "outlined",
     onClick: function onClick() {
       return setShowLayer(!showLayer);
     }
   }, "Composite");
+};
+
+MlFillExtrusionLayer.defaultProps = {
+  mapId: undefined,
+  paint: {
+    "fill-extrusion-color": "hsl(196, 61%, 83%)",
+    "fill-extrusion-height": {
+      property: "render_height",
+      type: "identity"
+    },
+    "fill-extrusion-base": {
+      property: "render_min_height",
+      type: "identity"
+    },
+    "fill-extrusion-opacity": 1
+  }
+};
+MlFillExtrusionLayer.propTypes = {
+  /**
+   * Id of the target MapLibre instance in mapContext
+   */
+  mapId: PropTypes.string,
+
+  /**
+   * Id of the layer that will be added by this component
+   */
+  layerId: PropTypes.string,
+
+  /**
+   * Prefix of the component id this component uses when adding elements to the MapLibreGl-instance
+   */
+  idPrefix: PropTypes.string,
+
+  /**
+   * Paint properties of the config object that is passed to the MapLibreGl.addLayer call. All
+   * available properties are documented in the MapLibreGl documentation
+   * https://maplibre.org/maplibre-gl-js-docs/style-spec/layers/#fill-extrusion
+   */
+  paint: PropTypes.object,
+
+  /**
+   * Source id of a vector tile source containing the geometries to use for this fill-extrusion
+   * layer.
+   * https://maplibre.org/maplibre-gl-js-docs/style-spec/layers/#source-layer
+   */
+  sourceId: PropTypes.string,
+
+  /**
+   * Layer id from a vector tile source containing the geometries to use for this fill-extrusion
+   * layer.
+   * https://maplibre.org/maplibre-gl-js-docs/style-spec/layers/#source-layer
+   */
+  sourceLayer: PropTypes.string,
+
+  /**
+   * This layer will be hidde for zoom levels lower than defined on this property
+   * https://maplibre.org/maplibre-gl-js-docs/style-spec/layers/#minzoom
+   */
+  minZoom: PropTypes.number,
+
+  /**
+   * The layerId of an existing layer this layer should be rendered visually beneath
+   * https://maplibre.org/maplibre-gl-js-docs/api/map/#map#addlayer - see "beforeId" property
+   */
+  insertBeforeLayer: PropTypes.string
 };
 
 var nmMap = {
@@ -753,7 +1103,7 @@ var createPdf = function createPdf(map, locationValue, setLoading) {
   container.style.height = toPixels(height);
   hidden.appendChild(container); //Render map
 
-  var renderMap = new maplibregl$2.Map({
+  var renderMap = new maplibregl$1.Map({
     container: container,
     center: map.getCenter(),
     zoom: map.getZoom(),
@@ -857,39 +1207,62 @@ var createPdf = function createPdf(map, locationValue, setLoading) {
       }
     });
     setLoading(false);
-    console.log("end create PDF");
   });
 };
 
 /**
- * MlCreatePdfButton returns a Button that will create a PDF version of the current map view (dimensions adjusted to fit Din A4 Paper).
- * It expects a MapLibre-gl instance accessible in mapContext.map.
+ * Renders a button that will create a PDF version of the current map view (dimensions adjusted to fit Din A4 Paper).
+ *
+ * @component
  */
 
-var MlCreatePdfButton = function MlCreatePdfButton() {
+var MlCreatePdfButton = function MlCreatePdfButton(props) {
   var mapContext = useContext(MapContext);
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Button, {
+  var initializedRef = useRef(false);
+  var mapRef = useRef(undefined);
+  useEffect(function () {
+    if (!mapContext.mapExists(props.mapId) || initializedRef.current) return;
+    initializedRef.current = true;
+    mapRef.current = mapContext.getMap(props.mapId);
+  }, [mapContext.mapIds, mapContext, props.mapId]);
+  return /*#__PURE__*/React__default.createElement(React__default.Fragment, null, /*#__PURE__*/React__default.createElement(Button, {
     color: "primary",
     variant: "contained",
     onClick: function onClick() {
-      createPdf(mapContext.map, null, function () {});
+      createPdf(mapRef.current, null, function () {});
     }
-  }, /*#__PURE__*/React.createElement(PrinterIcon, null)));
+  }, /*#__PURE__*/React__default.createElement(PrinterIcon, null)));
 };
 
-var _showNextTransitionSegment = function _showNextTransitionSegment(props, layerId, map, transitionInProgressRef, transitionGeojsonDataRef, transitionGeojsonCommonDataRef, currentTransitionStepRef, msPerStep) {
+MlCreatePdfButton.defaultProps = {
+  mapId: undefined
+};
+MlCreatePdfButton.propTypes = {
+  /**
+   * Id of the target MapLibre instance in mapContext
+   */
+  mapId: PropTypes.string
+};
+
+var _showNextTransitionSegment = function _showNextTransitionSegment(props, layerId, map, transitionInProgressRef, transitionGeojsonDataRef, transitionGeojsonCommonDataRef, currentTransitionStepRef, msPerStep, transitionTimeoutRef) {
   var _arguments = arguments;
-  console.log("SHOW NEXT TRANSITION SEGMENT CALLED");
 
   if (typeof map.getSource(layerId) === "undefined" || !transitionInProgressRef.current) {
-    setTimeout(function () {
+    transitionTimeoutRef.current = setTimeout(function () {
       return _showNextTransitionSegment.apply(void 0, _toConsumableArray(_arguments));
     }, msPerStep);
     return;
   }
 
   if (typeof transitionGeojsonDataRef.current[currentTransitionStepRef.current] !== "undefined") {
+    var _map$getSource;
+
     var newData = currentTransitionStepRef.current + 1 === transitionGeojsonDataRef.current.length ? props.geojson : lineString([].concat(_toConsumableArray(transitionGeojsonCommonDataRef.current), _toConsumableArray(transitionGeojsonDataRef.current[currentTransitionStepRef.current].geometry.coordinates)));
+
+    if (!(map !== null && map !== void 0 && (_map$getSource = map.getSource) !== null && _map$getSource !== void 0 && _map$getSource.call(map, layerId))) {
+      return;
+    }
+
     map.getSource(layerId).setData(newData);
 
     if (typeof props.onTransitionFrame === "function") {
@@ -899,7 +1272,7 @@ var _showNextTransitionSegment = function _showNextTransitionSegment(props, laye
     currentTransitionStepRef.current++;
 
     if (transitionInProgressRef.current && currentTransitionStepRef.current < transitionGeojsonDataRef.current.length) {
-      setTimeout(function () {
+      transitionTimeoutRef.current = setTimeout(function () {
         return _showNextTransitionSegment.apply(void 0, _toConsumableArray(_arguments));
       }, msPerStep);
     } else {
@@ -912,9 +1285,8 @@ var _showNextTransitionSegment = function _showNextTransitionSegment(props, laye
   }
 };
 
-var _transitionToGeojson = function _transitionToGeojson(newGeojson, props, transitionGeojsonCommonDataRef, transitionGeojsonDataRef, transitionInProgressRef, oldGeojsonRef, msPerStep, currentTransitionStepRef, map, layerId) {
+var _transitionToGeojson = function _transitionToGeojson(newGeojson, props, transitionGeojsonCommonDataRef, transitionGeojsonDataRef, transitionInProgressRef, oldGeojsonRef, msPerStep, currentTransitionStepRef, map, layerId, transitionTimeoutRef) {
   // create the transition geojson between oldGeojsonRef.current and props.geojson
-  //console.log("start transition");
   // create a geojson that contains no common point between the two line features
   var transitionCoordinatesShort = [];
   var transitionCoordinatesLong = [];
@@ -946,9 +1318,7 @@ var _transitionToGeojson = function _transitionToGeojson(newGeojson, props, tran
     longerGeojson = sourceGeojson;
     shorterGeojson = targetGeojson;
     reverseOrder = true;
-  } //console.log(shorterGeojson);
-  //console.log(longerGeojson);
-
+  }
 
   if (longerGeojson && shorterGeojson) {
     for (var i = 0, len = longerGeojson.geometry.coordinates.length; i < len; i++) {
@@ -998,11 +1368,11 @@ var _transitionToGeojson = function _transitionToGeojson(newGeojson, props, tran
 
     tmpLinestring = tmpChunks.features[1];
 
-    for (i = 1; i < srcTransitionSteps; i++) {
+    for (i = 0; i < srcTransitionSteps; i++) {
       transitionGeojsonDataRef.current.push(tmpLinestring);
 
-      if (typeof tmpChunks.features[i + 1] !== "undefined") {
-        tmpLinestring = lineString([].concat(_toConsumableArray(tmpLinestring.geometry.coordinates), _toConsumableArray(tmpChunks.features[i + 1].geometry.coordinates)));
+      if (typeof tmpChunks.features[i] !== "undefined") {
+        tmpLinestring = lineString([].concat(_toConsumableArray(tmpLinestring.geometry.coordinates), _toConsumableArray(tmpChunks.features[i].geometry.coordinates)));
       } else {
         transitionGeojsonDataRef.current.push(tmpLinestring);
         break;
@@ -1017,11 +1387,11 @@ var _transitionToGeojson = function _transitionToGeojson(newGeojson, props, tran
 
     tmpLinestring = tmpChunks.features[1];
 
-    for (i = 1; i < targetTransitionSteps; i++) {
+    for (i = 0; i < targetTransitionSteps; i++) {
       transitionGeojsonDataRef.current.push(tmpLinestring);
 
-      if (typeof tmpChunks.features[i + 1] !== "undefined") {
-        tmpLinestring = lineString([].concat(_toConsumableArray(tmpLinestring.geometry.coordinates), _toConsumableArray(tmpChunks.features[i + 1].geometry.coordinates)));
+      if (typeof tmpChunks.features[i] !== "undefined") {
+        tmpLinestring = lineString([].concat(_toConsumableArray(tmpLinestring.geometry.coordinates), _toConsumableArray(tmpChunks.features[i].geometry.coordinates)));
       } else {
         transitionGeojsonDataRef.current.push(tmpLinestring);
         break;
@@ -1032,12 +1402,17 @@ var _transitionToGeojson = function _transitionToGeojson(newGeojson, props, tran
   transitionGeojsonDataRef.current.push(props.geojson);
   currentTransitionStepRef.current = 1;
   transitionInProgressRef.current = true;
-  setTimeout(function () {
-    return _showNextTransitionSegment(props, layerId, map, transitionInProgressRef, transitionGeojsonDataRef, transitionGeojsonCommonDataRef, currentTransitionStepRef, msPerStep);
+  transitionTimeoutRef.current = setTimeout(function () {
+    return _showNextTransitionSegment(props, layerId, map, transitionInProgressRef, transitionGeojsonDataRef, transitionGeojsonCommonDataRef, currentTransitionStepRef, msPerStep, transitionTimeoutRef);
   }, msPerStep);
 };
 
 var msPerStep = 50;
+/**
+ * Adds source and layer of types "line", "fill" or "circle" to display GeoJSON data on the map.
+ *
+ * @component
+ */
 
 var MlGeoJsonLayer = function MlGeoJsonLayer(props) {
   // Use a useRef hook to reference the layer object to be able to access it later inside useEffect hooks
@@ -1046,14 +1421,20 @@ var MlGeoJsonLayer = function MlGeoJsonLayer(props) {
   var mapRef = useRef(null);
   var initializedRef = useRef(false);
   var transitionInProgressRef = useRef(false);
+  var transitionTimeoutRef = useRef(undefined);
   var currentTransitionStepRef = useRef(false);
   var transitionGeojsonDataRef = useRef([]);
   var transitionGeojsonCommonDataRef = useRef([]);
   var componentId = useRef((props.layerId ? props.layerId : "MlGeoJsonLayer-") + (props.idSuffix || v4()));
+  var layerId = useRef(props.layerId || componentId.current);
   useEffect(function () {
     var _componentId = componentId.current;
     return function () {
       // This is the cleanup function, it is called when this react component is removed from react-dom
+      if (transitionTimeoutRef.current) {
+        clearTimeout(transitionTimeoutRef.current);
+      }
+
       if (mapRef.current) {
         mapRef.current.cleanup(_componentId);
         mapRef.current = null;
@@ -1069,7 +1450,7 @@ var MlGeoJsonLayer = function MlGeoJsonLayer(props) {
     }
   }, [props.paint, mapContext, props.mapId]);
   var transitionToGeojson = useCallback(function (newGeojson) {
-    _transitionToGeojson(newGeojson, props, transitionGeojsonCommonDataRef, transitionGeojsonDataRef, transitionInProgressRef, oldGeojsonRef, msPerStep, currentTransitionStepRef, mapRef.current, componentId.current);
+    _transitionToGeojson(newGeojson, props, transitionGeojsonCommonDataRef, transitionGeojsonDataRef, transitionInProgressRef, oldGeojsonRef, msPerStep, currentTransitionStepRef, mapRef.current, componentId.current, transitionTimeoutRef);
   }, [props]);
   useEffect(function () {
     var _mapRef$current, _mapRef$current$getSo;
@@ -1104,7 +1485,7 @@ var MlGeoJsonLayer = function MlGeoJsonLayer(props) {
 
       mapRef.current = mapContext.getMap(props.mapId);
       mapRef.current.addLayer({
-        id: componentId.current,
+        id: layerId.current,
         source: {
           type: "geojson",
           data: geojson
@@ -1121,7 +1502,7 @@ var MlGeoJsonLayer = function MlGeoJsonLayer(props) {
       }
 
       if (typeof props.onClick !== "undefined") {
-        mapRef.current.on("mouseup", componentId.current, props.onClick, componentId.current);
+        mapRef.current.on("click", componentId.current, props.onClick, componentId.current);
       }
 
       if (typeof props.onLeave !== "undefined") {
@@ -1130,13 +1511,77 @@ var MlGeoJsonLayer = function MlGeoJsonLayer(props) {
 
       if (props.type === "line" && typeof props.transitionTime !== "undefined" && typeof props.geojson.geometry !== "undefined") {
         transitionToGeojson(props.geojson);
-        setTimeout(function () {
-          oldGeojsonRef.current = props.geojson;
-        }, props.transitionTime / 2);
+        oldGeojsonRef.current = props.geojson;
       }
     }
-  }, [mapContext.mapIds, mapContext, props.geojson, props.insertBeforeLayer, props.mapId, props.type, props.transitionTime, props.paint, transitionToGeojson]);
-  return /*#__PURE__*/React.createElement(React.Fragment, null);
+  }, [mapContext.mapIds, mapContext, props, transitionToGeojson]);
+  return /*#__PURE__*/React__default.createElement(React__default.Fragment, null);
+};
+
+MlGeoJsonLayer.propTypes = {
+  /**
+   * Id of the target MapLibre instance in mapContext
+   */
+  mapId: PropTypes.string,
+
+  /**
+   * Type of the layer that will be added to the MapLibre instance.
+   * Possible values: "line", "circle", "fill"
+   */
+  type: PropTypes.string,
+
+  /**
+   * Paint object, that is passed to the addLayer call.
+   * Possible propsdepend on the layer type.
+   * https://maplibre.org/maplibre-gl-js-docs/style-spec/layers/#line
+   * https://maplibre.org/maplibre-gl-js-docs/style-spec/layers/#circle
+   * https://maplibre.org/maplibre-gl-js-docs/style-spec/layers/#fill
+   */
+  paint: PropTypes.object,
+
+  /**
+   * GeoJSON data that is supposed to be rendered by this component.
+   */
+  geojson: PropTypes.object,
+
+  /**
+   * Id of an existing layer in the mapLibre instance to help specify the layer order
+   * This layer will be visually beneath the layer with the "insertBeforeLayer" id.
+   */
+  insertBeforeLayer: PropTypes.string,
+
+  /**
+   * Id of the new layer and source that are added to the MapLibre instance
+   */
+  layerId: PropTypes.string,
+
+  /**
+   * Click event handler that is executed whenever a geometry rendered by this component is clicked.
+   */
+  onClick: PropTypes.func,
+
+  /**
+   * Hover event handler that is executed whenever a geometry rendered by this component is hovered.
+   */
+  onHover: PropTypes.func,
+
+  /**
+   * Leave event handler that is executed whenever a geometry rendered by this component is
+   * left/unhovered.
+   */
+  onLeave: PropTypes.func,
+
+  /**
+   * Creates transition animation whenever the geojson prop changes.
+   * Only works with layer type "line" and LineString GeoJSON data.
+   */
+  transitionTime: PropTypes.number,
+
+  /**
+   * Id suffix string that is appended to the componentId.
+   * Probably removed soon.
+   */
+  idSuffix: PropTypes.string
 };
 
 var MlImageMarkerLayer = function MlImageMarkerLayer(props) {
@@ -1145,9 +1590,9 @@ var MlImageMarkerLayer = function MlImageMarkerLayer(props) {
   var componentId = useRef((props.idPrefix ? props.idPrefix : "MlOsmLayer-") + v4());
   var mapContext = useContext(MapContext);
   var layerInitializedRef = useRef(false);
-  var idPostfixRef = useRef(props.idSuffix || new Date().getTime());
+  var idSuffixRef = useRef(props.idSuffix || new Date().getTime());
   var imageIdRef = useRef(props.imageId || "img_" + new Date().getTime());
-  var layerId = (props.layerId || "MlImageMarkerLayer-") + idPostfixRef.current;
+  var layerId = useRef((props.layerId || "MlImageMarkerLayer-") + idSuffixRef.current);
   useEffect(function () {
     var _componentId = componentId.current;
     return function () {
@@ -1159,41 +1604,32 @@ var MlImageMarkerLayer = function MlImageMarkerLayer(props) {
     };
   }, []);
   useEffect(function () {
-    if (!mapRef.current || mapRef.current && !mapContext.getMap(props.mapId).getLayer(layerId) || !props.options) return; // the MapLibre-gl instance (mapContext.map) is accessible here
+    if (!mapRef.current || mapRef.current && !mapContext.getMap(props.mapId).getLayer(layerId.current) || !props.options) return; // the MapLibre-gl instance (mapContext.map) is accessible here
     // initialize the layer and add it to the MapLibre-gl instance or do something else with it
 
     var key;
 
     if (props.options.layout) {
       for (key in props.options.layout) {
-        mapContext.getMap(props.mapId).setLayoutProperty(layerId, key, props.options.layout[key]);
+        mapContext.getMap(props.mapId).setLayoutProperty(layerId.current, key, props.options.layout[key]);
       }
     }
 
     if (props.options.paint) {
       for (key in props.options.paint) {
-        mapContext.getMap(props.mapId).setPaintProperty(layerId, key, props.options.paint[key]);
+        mapContext.getMap(props.mapId).setPaintProperty(layerId.current, key, props.options.paint[key]);
       }
     }
-  }, [props.options, layerId, mapContext, props.mapId]);
+  }, [props.options, layerId.current, mapContext, props.mapId]);
   var addLayer = useCallback(function () {
     var tmpOptions = _objectSpread2({
-      id: layerId,
+      id: layerId.current,
       layout: {}
     }, props.options);
 
     tmpOptions.layout["icon-image"] = imageIdRef.current;
     mapRef.current.addLayer(tmpOptions, props.insertBeforeLayer, componentId.current);
-  }, [props, imageIdRef, layerId]);
-  useEffect(function () {
-    if (!mapRef.current || mapRef.current && !mapContext.getMap(props.mapId).getLayer(layerId) || !props.options) {
-      return;
-    } // the MapLibre-gl instance (mapContext.map) is accessible here
-    // initialize the layer and add it to the MapLibre-gl instance or do something else with it
-
-
-    mapRef.current.getSource(layerId).setData(props.geojson);
-  }, [props.geojson, layerId, mapContext, props]);
+  }, [props]);
   useEffect(function () {
     if (!props.options || !mapContext.mapExists(props.mapId) || layerInitializedRef.current) return; // the MapLibre-gl instance (mapContext.map) is accessible here
     // initialize the layer and add it to the MapLibre-gl instance or do something else with it
@@ -1209,8 +1645,575 @@ var MlImageMarkerLayer = function MlImageMarkerLayer(props) {
     }
 
     addLayer();
-  }, [mapContext.mapIds, mapContext, props, layerId, addLayer]);
-  return /*#__PURE__*/React.createElement(React.Fragment, null);
+  }, [mapContext.mapIds, mapContext, props, addLayer]);
+  useEffect(function () {
+    if (!mapRef.current || mapRef.current && !mapContext.getMap(props.mapId).getLayer(layerId.current) || !props.options) {
+      return;
+    } // the MapLibre-gl instance (mapContext.map) is accessible here
+    // initialize the layer and add it to the MapLibre-gl instance or do something else with it
+
+
+    mapRef.current.getSource(layerId.current).setData(props.options.source.data);
+  }, [props.options.source.data, mapContext, props]);
+  return /*#__PURE__*/React__default.createElement(React__default.Fragment, null);
+};
+
+function _extends() { _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
+
+function SvgRotateRight(props) {
+  return /*#__PURE__*/createElement("svg", _extends({
+    width: "39.675098mm",
+    height: "104.27064mm",
+    viewBox: "0 0 39.675098 104.27064"
+  }, props), /*#__PURE__*/createElement("g", {
+    transform: "translate(-86.019554,-58.032633)"
+  }, /*#__PURE__*/createElement("path", {
+    style: {
+      strokeWidth: 0.744756
+    },
+    d: "m 442.74023,219.33594 -117.62695,32.32422 54.71094,31.12304 c -21.99397,41.5931 -32.8507,84.88283 -38.33008,127.89649 -6.86182,50.94051 -5.95715,103.99765 20.23828,155.46484 5.97246,11.72776 13.65817,23.59773 24.38867,35.06641 2.6597,2.84073 5.65602,5.75455 9.12891,8.68164 0.87557,0.7378 1.85363,1.52609 2.95117,2.35547 0.29669,0.22563 0.63616,0.47742 1.02149,0.75586 l 0.58203,0.42578 34.57812,-15.12305 -0.33789,-0.2207 c -0.0265,-0.0151 -0.0842,-0.0587 -0.18359,-0.13086 -0.46723,-0.34885 -0.9819,-0.76796 -1.56055,-1.25 -2.29757,-1.91343 -4.46539,-4.04643 -6.64062,-6.33985 -8.80052,-9.27114 -15.30333,-19.4993 -20.83985,-30.13867 -24.42289,-46.90715 -24.77465,-97.03535 -18.58008,-146.68164 4.94388,-37.37493 13.65299,-74.4847 30.20508,-109.92969 l 58.6211,33.34766 z",
+    transform: "scale(0.26458333)"
+  })));
+}
+
+var _g;
+
+function _extends$1() { _extends$1 = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends$1.apply(this, arguments); }
+
+function SvgRotateLeft(props) {
+  return /*#__PURE__*/createElement("svg", _extends$1({
+    width: "39.675098mm",
+    height: "104.27064mm",
+    viewBox: "0 0 39.675098 104.27064"
+  }, props), _g || (_g = /*#__PURE__*/createElement("g", {
+    transform: "translate(-86.019554,-58.032633)"
+  }, /*#__PURE__*/createElement("path", {
+    d: "m 94.572523,58.032633 31.122127,8.55245 -14.4756,8.234638 c 5.81924,11.004841 8.69175,22.458582 10.1415,33.839279 1.81552,13.47801 1.57616,27.51604 -5.35471,41.13341 -1.58021,3.10296 -3.61373,6.24356 -6.45284,9.27798 -0.70371,0.75161 -1.49649,1.52256 -2.41535,2.29702 -0.23167,0.19521 -0.49044,0.40378 -0.78083,0.62322 -0.0785,0.0597 -0.16832,0.12632 -0.27027,0.19999 l -0.154,0.11265 -9.148793,-4.00131 0.0894,-0.0584 c 0.007,-0.004 0.02228,-0.0155 0.04857,-0.0346 0.123621,-0.0923 0.259794,-0.20319 0.412895,-0.33073 0.607899,-0.50626 1.181468,-1.07062 1.756997,-1.67742 2.328481,-2.45299 4.049011,-5.15919 5.513881,-7.97419 6.46189,-12.41085 6.55496,-25.67394 4.91598,-38.80952 -1.30807,-9.888781 -3.61235,-19.707408 -7.99176,-29.085561 l -15.510171,8.823235 z"
+  }))));
+}
+
+var _g$1;
+
+function _extends$2() { _extends$2 = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends$2.apply(this, arguments); }
+
+function SvgNeedle(props) {
+  return /*#__PURE__*/createElement("svg", _extends$2({
+    width: "75.967445mm",
+    height: "234.71339mm",
+    viewBox: "0 0 75.967445 234.71339"
+  }, props), _g$1 || (_g$1 = /*#__PURE__*/createElement("g", {
+    transform: "translate(-76.705281,-29.77268)"
+  }, /*#__PURE__*/createElement("path", {
+    d: "m 114.68901,29.77268 37.98372,117.3567 H 76.705281 Z"
+  }), /*#__PURE__*/createElement("path", {
+    d: "m 114.68901,264.48608 37.98372,-117.3567 H 76.705281 Z"
+  }))));
+}
+
+function _EMOTION_STRINGIFIED_CSS_ERROR__() { return "You have tried to stringify object returned from `css` function. It isn't supposed to be used directly (e.g. as value of the `className` prop), but rather handed to emotion so it can handle it (e.g. as value of `css` prop)."; }
+
+var NeedleButton = _styled("div", process.env.NODE_ENV === "production" ? {
+  target: "e12lzm5x2"
+} : {
+  target: "e12lzm5x2",
+  label: "NeedleButton"
+})(process.env.NODE_ENV === "production" ? {
+  name: "1204o9",
+  styles: "width:40%;display:flex;align-items:center;&:hover{cursor:pointer;}path{filter:drop-shadow(0px 0px 15px rgba(0, 0, 0, 0.2));}&:hover path{filter:drop-shadow(0px 0px 13px rgba(255, 255, 255, 0.1));}path:nth-of-type(2){fill:#343434;}&:hover path:nth-of-type(2){fill:#434343;}path:nth-of-type(1){fill:#e90318;}&:hover path:nth-of-type(1){fill:#fb4052;}"
+} : {
+  name: "1204o9",
+  styles: "width:40%;display:flex;align-items:center;&:hover{cursor:pointer;}path{filter:drop-shadow(0px 0px 15px rgba(0, 0, 0, 0.2));}&:hover path{filter:drop-shadow(0px 0px 13px rgba(255, 255, 255, 0.1));}path:nth-of-type(2){fill:#343434;}&:hover path:nth-of-type(2){fill:#434343;}path:nth-of-type(1){fill:#e90318;}&:hover path:nth-of-type(1){fill:#fb4052;}",
+  map: "/*# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbIk1sTmF2aWdhdGlvbkNvbXBhc3MuanMiXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBYStCIiwiZmlsZSI6Ik1sTmF2aWdhdGlvbkNvbXBhc3MuanMiLCJzb3VyY2VzQ29udGVudCI6WyJpbXBvcnQgUmVhY3QsIHsgdXNlU3RhdGUsIHVzZVJlZiwgdXNlRWZmZWN0LCB1c2VDb250ZXh0IH0gZnJvbSBcInJlYWN0XCI7XG5pbXBvcnQgUHJvcFR5cGVzIGZyb20gXCJwcm9wLXR5cGVzXCI7XG5cbmltcG9ydCB7IE1hcENvbnRleHQgfSBmcm9tIFwiQG1hcGNvbXBvbmVudHMvcmVhY3QtY29yZVwiO1xuaW1wb3J0IHsgdjQgYXMgdXVpZHY0IH0gZnJvbSBcInV1aWRcIjtcblxuaW1wb3J0IHsgUmVhY3RDb21wb25lbnQgYXMgUm90YXRlUmlnaHRJY29uIH0gZnJvbSBcIi4vYXNzZXRzL3JvdGF0ZV9yaWdodC5zdmdcIjtcbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIFJvdGF0ZUxlZnRJY29uIH0gZnJvbSBcIi4vYXNzZXRzL3JvdGF0ZV9sZWZ0LnN2Z1wiO1xuaW1wb3J0IHsgUmVhY3RDb21wb25lbnQgYXMgTmVlZGxlSWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9uZWVkbGUuc3ZnXCI7XG5cbmltcG9ydCBzdHlsZWQgZnJvbSBcIkBlbW90aW9uL3N0eWxlZFwiO1xuaW1wb3J0IHsgY3NzIH0gZnJvbSBcIkBlbW90aW9uL2Nzc1wiO1xuXG5jb25zdCBOZWVkbGVCdXR0b24gPSBzdHlsZWQuZGl2YFxuICB3aWR0aDogNDAlO1xuICBkaXNwbGF5OiBmbGV4O1xuICBhbGlnbi1pdGVtczogY2VudGVyO1xuXG4gICY6aG92ZXIge1xuICAgIGN1cnNvcjogcG9pbnRlcjtcbiAgfVxuICBwYXRoIHtcbiAgICBmaWx0ZXI6IGRyb3Atc2hhZG93KDBweCAwcHggMTVweCByZ2JhKDAsIDAsIDAsIDAuMikpO1xuICB9XG4gICY6aG92ZXIgcGF0aCB7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDEzcHggcmdiYSgyNTUsIDI1NSwgMjU1LCAwLjEpKTtcbiAgfVxuICBwYXRoOm50aC1vZi10eXBlKDIpIHtcbiAgICBmaWxsOiAjMzQzNDM0O1xuICB9XG4gICY6aG92ZXIgcGF0aDpudGgtb2YtdHlwZSgyKSB7XG4gICAgZmlsbDogIzQzNDM0MztcbiAgfVxuICBwYXRoOm50aC1vZi10eXBlKDEpIHtcbiAgICBmaWxsOiAjZTkwMzE4O1xuICB9XG4gICY6aG92ZXIgcGF0aDpudGgtb2YtdHlwZSgxKSB7XG4gICAgZmlsbDogI2ZiNDA1MjtcbiAgfVxuYDtcbmNvbnN0IE5lZWRsZUNvbnRhaW5lciA9IHN0eWxlZC5kaXZgXG4gIHBvaW50ZXItZXZlbnRzOiBub25lO1xuICBkaXNwbGF5OiBmbGV4O1xuICB6LWluZGV4OiAxMDAyO1xuICBwb3NpdGlvbjogYWJzb2x1dGU7XG4gIGFsaWduLWl0ZW1zOiBjZW50ZXI7XG5cbiAgbWFyZ2luLWxlZnQ6IC0zMCU7XG4gIHBhdGg6bnRoLW9mLXR5cGUoMikge1xuICB9XG4gIHN2ZyBnIHtcbiAgICB0cmFuc2Zvcm06IHRyYW5zbGF0ZSgtNzYuNzA1MywgLTI5Ljc3MjcpIHNjYWxlKDIsIDEpO1xuICB9XG4gIHN2ZyB7XG4gICAgei1pbmRleDogOTk5MDtcbiAgICBoZWlnaHQ6IDE1MHB4O1xuICAgIHdpZHRoOiAyMDBweDtcbiAgfVxuYDtcbmNvbnN0IFJvdGF0ZUJ1dHRvbiA9IHN0eWxlZC5kaXZgXG4gIHdpZHRoOiAzMCU7XG4gIG1hcmdpbi10b3A6IDE0cHg7XG4gIHotaW5kZXg6IDk5OTtcbiAgZGlzcGxheTogZmxleDtcblxuICBzdmc6aG92ZXIge1xuICAgIGN1cnNvcjogcG9pbnRlcjtcbiAgfVxuICBzdmc6aG92ZXIgcGF0aCB7XG4gICAgZmlsbDogI2VjZWNlYztcbiAgICBmaWx0ZXI6IGRyb3Atc2hhZG93KDBweCAwcHggNXB4IHJnYmEoMCwgMCwgMCwgMC4xKSk7XG4gIH1cbiAgcGF0aCB7XG4gICAgZmlsbDogI2JiYjtcbiAgfVxuICBzdmcge1xuICAgIHRyYW5zZm9ybTogc2NhbGUoMC42KTtcbiAgICB6LWluZGV4OiA5OTkwO1xuICAgIGhlaWdodDogMTcycHg7XG4gIH1cbmA7XG5cbi8qKlxuICogTmF2aWdhdGlvbiBjb21wb25lbnQgdGhhdCBkaXNwbGF5cyBhIGNvbXBhc3MgY29tcG9uZW50IHdoaWNoIGluZGljYXRlcyB0aGUgY3VycmVudCBvcmlhbnRhdGlvbiBvZiB0aGUgbWFwIGl0IGlzIHJlZ2lzdGVyZWQgZm9yIGFuZCBvZmZlcnMgY29udHJvbHMgdG8gdHVybiB0aGUgYmVhcmluZyA5MMKwIGxlZnQvcmlnaHQgb3IgcmVzZXQgbm9ydGggdG8gcG9pbnQgdXAuXG4gKlxuICogQWxsIHN0eWxlIHByb3BzIGFyZSBhcHBsaWVkIHVzaW5nIEBlbW90aW9uL2NzcyB0byBhbGxvdyBtb3JlIGNvbXBsZXggY3NzIHNlbGVjdG9ycy5cbiAqXG4gKiBAY29tcG9uZW50XG4gKi9cbmNvbnN0IE1sTmF2aWdhdGlvbkNvbXBhc3MgPSAocHJvcHMpID0+IHtcbiAgLy8gVXNlIGEgdXNlUmVmIGhvb2sgdG8gcmVmZXJlbmNlIHRoZSBsYXllciBvYmplY3QgdG8gYmUgYWJsZSB0byBhY2Nlc3MgaXQgbGF0ZXIgaW5zaWRlIHVzZUVmZmVjdCBob29rc1xuICBjb25zdCBtYXBDb250ZXh0ID0gdXNlQ29udGV4dChNYXBDb250ZXh0KTtcblxuICBjb25zdCBpbml0aWFsaXplZFJlZiA9IHVzZVJlZihmYWxzZSk7XG4gIGNvbnN0IG1hcFJlZiA9IHVzZVJlZih1bmRlZmluZWQpO1xuICBjb25zdCBjb21wb25lbnRJZCA9IHVzZVJlZigocHJvcHMuaWRQcmVmaXggPyBwcm9wcy5pZFByZWZpeCA6IFwiTWxOYXZpZ2F0aW9uQ29tcGFzcy1cIikgKyB1dWlkdjQoKSk7XG5cbiAgY29uc3QgW2JlYXJpbmcsIHNldEJlYXJpbmddID0gdXNlU3RhdGUoMCk7XG5cbiAgdXNlRWZmZWN0KCgpID0+IHtcbiAgICBsZXQgX2NvbXBvbmVudElkID0gY29tcG9uZW50SWQuY3VycmVudDtcblxuICAgIHJldHVybiAoKSA9PiB7XG4gICAgICAvLyBUaGlzIGlzIHRoZSBjbGVhbnVwIGZ1bmN0aW9uLCBpdCBpcyBjYWxsZWQgd2hlbiB0aGlzIHJlYWN0IGNvbXBvbmVudCBpcyByZW1vdmVkIGZyb20gcmVhY3QtZG9tXG5cbiAgICAgIGlmIChtYXBSZWYuY3VycmVudCkge1xuICAgICAgICBtYXBSZWYuY3VycmVudC5jbGVhbnVwKF9jb21wb25lbnRJZCk7XG4gICAgICAgIG1hcFJlZi5jdXJyZW50ID0gdW5kZWZpbmVkO1xuICAgICAgfVxuICAgICAgaW5pdGlhbGl6ZWRSZWYuY3VycmVudCA9IGZhbHNlO1xuICAgIH07XG4gIH0sIFtdKTtcblxuICB1c2VFZmZlY3QoKCkgPT4ge1xuICAgIGlmICghbWFwQ29udGV4dC5tYXBFeGlzdHMocHJvcHMubWFwSWQpIHx8IGluaXRpYWxpemVkUmVmLmN1cnJlbnQpIHJldHVybjtcbiAgICBpbml0aWFsaXplZFJlZi5jdXJyZW50ID0gdHJ1ZTtcbiAgICBtYXBSZWYuY3VycmVudCA9IG1hcENvbnRleHQuZ2V0TWFwKHByb3BzLm1hcElkKTtcblxuICAgIG1hcFJlZi5jdXJyZW50Lm9uKFxuICAgICAgXCJyb3RhdGVcIixcbiAgICAgIGZ1bmN0aW9uICgpIHtcbiAgICAgICAgc2V0QmVhcmluZyhNYXRoLnJvdW5kKG1hcFJlZi5jdXJyZW50LmdldEJlYXJpbmcoKSkpO1xuICAgICAgfSxcbiAgICAgIGNvbXBvbmVudElkLmN1cnJlbnRcbiAgICApO1xuICAgIHNldEJlYXJpbmcoTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudC5nZXRCZWFyaW5nKCkpKTtcbiAgfSwgW21hcENvbnRleHQubWFwSWRzLCBtYXBDb250ZXh0LCBwcm9wcy5tYXBJZF0pO1xuXG4gIHJldHVybiAoXG4gICAgPD5cbiAgICAgIDxkaXZcbiAgICAgICAgY2xhc3NOYW1lPXtjc3Moe1xuICAgICAgICAgIHpJbmRleDogMTAwMCxcbiAgICAgICAgICB0b3A6IDAsXG4gICAgICAgICAgcG9zaXRpb246IFwiYWJzb2x1dGVcIixcbiAgICAgICAgICAuLi5wcm9wcy5zdHlsZSxcbiAgICAgICAgfSl9XG4gICAgICA+XG4gICAgICAgIDxkaXZcbiAgICAgICAgICBjbGFzc05hbWU9e2Nzcyh7XG4gICAgICAgICAgICBwb3NpdGlvbjogXCJhYnNvbHV0ZVwiLFxuICAgICAgICAgICAgYm9yZGVyOiBcIjEwcHggc29saWQgI2JjYmNiY1wiLFxuICAgICAgICAgICAgYmFja2dyb3VuZENvbG9yOiBcIiM3MTcxNzFcIixcbiAgICAgICAgICAgIGJhY2tncm91bmQ6IFwicmFkaWFsLWdyYWRpZW50KCM3MTcxNzEsICM0MTQxNDEpXCIsXG4gICAgICAgICAgICBoZWlnaHQ6IFwiMjAwcHhcIixcbiAgICAgICAgICAgIHdpZHRoOiBcIjIwMHB4XCIsXG4gICAgICAgICAgICBib3JkZXJSYWRpdXM6IFwiNTAlXCIsXG4gICAgICAgICAgICBkaXNwbGF5OiBcImZsZXhcIixcbiAgICAgICAgICAgIGp1c3RpZnlDb250ZW50OiBcImNlbnRlclwiLFxuICAgICAgICAgICAgdHJhbnNmb3JtOiBcInNjYWxlKDAuMikgdHJhbnNsYXRlWCgtNDQ4cHgpIHRyYW5zbGF0ZVkoLTQ0OHB4KVwiLFxuICAgICAgICAgICAgLi4ucHJvcHMuYmFja2dyb3VuZFN0eWxlLFxuICAgICAgICAgIH0pfVxuICAgICAgICA+XG4gICAgICAgICAgPFJvdGF0ZUJ1dHRvbiBjbGFzc05hbWU9e2Nzcyh7IC4uLnByb3BzLnJvdGF0ZVJpZ2h0U3R5bGUgfSl9PlxuICAgICAgICAgICAgPFJvdGF0ZVJpZ2h0SWNvblxuICAgICAgICAgICAgICBvbkNsaWNrPXsoKSA9PiB7XG4gICAgICAgICAgICAgICAgbGV0IGJlYXJpbmcgPSBNYXRoLnJvdW5kKG1hcFJlZi5jdXJyZW50Py5nZXRCZWFyaW5nKCkpO1xuICAgICAgICAgICAgICAgIGxldCByZXN0ID0gTWF0aC5yb3VuZChiZWFyaW5nICUgOTApO1xuICAgICAgICAgICAgICAgIGlmIChiZWFyaW5nID4gMCkge1xuICAgICAgICAgICAgICAgICAgcmVzdCA9IDkwIC0gcmVzdDtcbiAgICAgICAgICAgICAgICB9XG4gICAgICAgICAgICAgICAgaWYgKHJlc3QgPT09IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MDtcbiAgICAgICAgICAgICAgICB9XG4gICAgICAgICAgICAgICAgbWFwUmVmLmN1cnJlbnQ/LnNldEJlYXJpbmcoTWF0aC5yb3VuZChiZWFyaW5nICsgTWF0aC5hYnMocmVzdCkpKTtcbiAgICAgICAgICAgICAgfX1cbiAgICAgICAgICAgID48L1JvdGF0ZVJpZ2h0SWNvbj5cbiAgICAgICAgICA8L1JvdGF0ZUJ1dHRvbj5cbiAgICAgICAgICA8TmVlZGxlQnV0dG9uXG4gICAgICAgICAgICBjbGFzc05hbWU9e2Nzcyh7IC4uLnByb3BzLm5lZWRsZVN0eWxlIH0pfVxuICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICBtYXBSZWYuY3VycmVudD8uc2V0QmVhcmluZygwKTtcbiAgICAgICAgICAgIH19XG4gICAgICAgICAgPlxuICAgICAgICAgICAgPE5lZWRsZUNvbnRhaW5lclxuICAgICAgICAgICAgICBzdHlsZT17e1xuICAgICAgICAgICAgICAgIHRyYW5zZm9ybTogXCJyb3RhdGUoXCIgKyBiZWFyaW5nICsgXCJkZWcpXCIsXG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+XG4gICAgICAgICAgICAgIDxOZWVkbGVJY29uIC8+XG4gICAgICAgICAgICA8L05lZWRsZUNvbnRhaW5lcj5cbiAgICAgICAgICA8L05lZWRsZUJ1dHRvbj5cbiAgICAgICAgICA8Um90YXRlQnV0dG9uIGNsYXNzTmFtZT17Y3NzKHsgLi4ucHJvcHMucm90YXRlTGVmdFN0eWxlIH0pfT5cbiAgICAgICAgICAgIDxSb3RhdGVMZWZ0SWNvblxuICAgICAgICAgICAgICBvbkNsaWNrPXsoKSA9PiB7XG4gICAgICAgICAgICAgICAgbGV0IGJlYXJpbmcgPSBNYXRoLnJvdW5kKG1hcFJlZi5jdXJyZW50Py5nZXRCZWFyaW5nKCkpO1xuICAgICAgICAgICAgICAgIGxldCByZXN0ID0gTWF0aC5yb3VuZChiZWFyaW5nICUgOTApO1xuICAgICAgICAgICAgICAgIGlmIChiZWFyaW5nIDwgMCkge1xuICAgICAgICAgICAgICAgICAgcmVzdCA9IDkwICsgcmVzdDtcbiAgICAgICAgICAgICAgICB9XG4gICAgICAgICAgICAgICAgaWYgKHJlc3QgPT09IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MDtcbiAgICAgICAgICAgICAgICB9XG4gICAgICAgICAgICAgICAgbWFwUmVmLmN1cnJlbnQ/LnNldEJlYXJpbmcoTWF0aC5yb3VuZChiZWFyaW5nIC0gTWF0aC5hYnMocmVzdCkpKTtcbiAgICAgICAgICAgICAgfX1cbiAgICAgICAgICAgID48L1JvdGF0ZUxlZnRJY29uPlxuICAgICAgICAgIDwvUm90YXRlQnV0dG9uPlxuICAgICAgICA8L2Rpdj5cbiAgICAgIDwvZGl2PlxuICAgIDwvPlxuICApO1xufTtcblxuTWxOYXZpZ2F0aW9uQ29tcGFzcy5wcm9wVHlwZXMgPSB7XG4gIC8qKlxuICAgKiBDb21wb25lbnQgaWQgcHJlZml4XG4gICAqL1xuICBpZFByZWZpeDogUHJvcFR5cGVzLnN0cmluZyxcbiAgLyoqXG4gICAqIFN0eWxlIG9iamVjdCB0byBhZGp1c3QgY3NzIGRlZmluaXRpb25zIG9mIHRoZSBjb21wb25lbnQuXG4gICAqL1xuICBzdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbiAgLyoqXG4gICAqIFN0eWxlIG9iamVjdCB0byBhZGp1c3QgY3NzIGRlZmluaXRpb25zIG9mIHRoZSBiYWNrZ3JvdW5kLlxuICAgKi9cbiAgYmFja2dyb3VuZFN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIGNvbXBhc3MgbmVlZGxlLlxuICAgKi9cbiAgbmVlZGxlU3R5bGU6IFByb3BUeXBlcy5vYmplY3QsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgcm90YXRlIHJpZ2h0IGJ1dHRvbi5cbiAgICovXG4gIHJvdGF0ZVJpZ2h0U3R5bGU6IFByb3BUeXBlcy5vYmplY3QsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgcm90YXRlIGxlZnQgYnV0dG9uLlxuICAgKi9cbiAgcm90YXRlTGVmdFN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxufTtcblxuZXhwb3J0IGRlZmF1bHQgTWxOYXZpZ2F0aW9uQ29tcGFzcztcbiJdfQ== */",
+  toString: _EMOTION_STRINGIFIED_CSS_ERROR__
+});
+
+var NeedleContainer = _styled("div", process.env.NODE_ENV === "production" ? {
+  target: "e12lzm5x1"
+} : {
+  target: "e12lzm5x1",
+  label: "NeedleContainer"
+})(process.env.NODE_ENV === "production" ? {
+  name: "1m8y6tb",
+  styles: "pointer-events:none;display:flex;z-index:1002;position:absolute;align-items:center;margin-left:-30%;path:nth-of-type(2){}svg g{transform:translate(-76.7053, -29.7727) scale(2, 1);}svg{z-index:9990;height:150px;width:200px;}"
+} : {
+  name: "1m8y6tb",
+  styles: "pointer-events:none;display:flex;z-index:1002;position:absolute;align-items:center;margin-left:-30%;path:nth-of-type(2){}svg g{transform:translate(-76.7053, -29.7727) scale(2, 1);}svg{z-index:9990;height:150px;width:200px;}",
+  map: "/*# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbIk1sTmF2aWdhdGlvbkNvbXBhc3MuanMiXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBd0NrQyIsImZpbGUiOiJNbE5hdmlnYXRpb25Db21wYXNzLmpzIiwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IFJlYWN0LCB7IHVzZVN0YXRlLCB1c2VSZWYsIHVzZUVmZmVjdCwgdXNlQ29udGV4dCB9IGZyb20gXCJyZWFjdFwiO1xuaW1wb3J0IFByb3BUeXBlcyBmcm9tIFwicHJvcC10eXBlc1wiO1xuXG5pbXBvcnQgeyBNYXBDb250ZXh0IH0gZnJvbSBcIkBtYXBjb21wb25lbnRzL3JlYWN0LWNvcmVcIjtcbmltcG9ydCB7IHY0IGFzIHV1aWR2NCB9IGZyb20gXCJ1dWlkXCI7XG5cbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIFJvdGF0ZVJpZ2h0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfcmlnaHQuc3ZnXCI7XG5pbXBvcnQgeyBSZWFjdENvbXBvbmVudCBhcyBSb3RhdGVMZWZ0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfbGVmdC5zdmdcIjtcbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIE5lZWRsZUljb24gfSBmcm9tIFwiLi9hc3NldHMvbmVlZGxlLnN2Z1wiO1xuXG5pbXBvcnQgc3R5bGVkIGZyb20gXCJAZW1vdGlvbi9zdHlsZWRcIjtcbmltcG9ydCB7IGNzcyB9IGZyb20gXCJAZW1vdGlvbi9jc3NcIjtcblxuY29uc3QgTmVlZGxlQnV0dG9uID0gc3R5bGVkLmRpdmBcbiAgd2lkdGg6IDQwJTtcbiAgZGlzcGxheTogZmxleDtcbiAgYWxpZ24taXRlbXM6IGNlbnRlcjtcblxuICAmOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgcGF0aCB7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDE1cHggcmdiYSgwLCAwLCAwLCAwLjIpKTtcbiAgfVxuICAmOmhvdmVyIHBhdGgge1xuICAgIGZpbHRlcjogZHJvcC1zaGFkb3coMHB4IDBweCAxM3B4IHJnYmEoMjU1LCAyNTUsIDI1NSwgMC4xKSk7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgyKSB7XG4gICAgZmlsbDogIzM0MzQzNDtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMikge1xuICAgIGZpbGw6ICM0MzQzNDM7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgxKSB7XG4gICAgZmlsbDogI2U5MDMxODtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMSkge1xuICAgIGZpbGw6ICNmYjQwNTI7XG4gIH1cbmA7XG5jb25zdCBOZWVkbGVDb250YWluZXIgPSBzdHlsZWQuZGl2YFxuICBwb2ludGVyLWV2ZW50czogbm9uZTtcbiAgZGlzcGxheTogZmxleDtcbiAgei1pbmRleDogMTAwMjtcbiAgcG9zaXRpb246IGFic29sdXRlO1xuICBhbGlnbi1pdGVtczogY2VudGVyO1xuXG4gIG1hcmdpbi1sZWZ0OiAtMzAlO1xuICBwYXRoOm50aC1vZi10eXBlKDIpIHtcbiAgfVxuICBzdmcgZyB7XG4gICAgdHJhbnNmb3JtOiB0cmFuc2xhdGUoLTc2LjcwNTMsIC0yOS43NzI3KSBzY2FsZSgyLCAxKTtcbiAgfVxuICBzdmcge1xuICAgIHotaW5kZXg6IDk5OTA7XG4gICAgaGVpZ2h0OiAxNTBweDtcbiAgICB3aWR0aDogMjAwcHg7XG4gIH1cbmA7XG5jb25zdCBSb3RhdGVCdXR0b24gPSBzdHlsZWQuZGl2YFxuICB3aWR0aDogMzAlO1xuICBtYXJnaW4tdG9wOiAxNHB4O1xuICB6LWluZGV4OiA5OTk7XG4gIGRpc3BsYXk6IGZsZXg7XG5cbiAgc3ZnOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgc3ZnOmhvdmVyIHBhdGgge1xuICAgIGZpbGw6ICNlY2VjZWM7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDVweCByZ2JhKDAsIDAsIDAsIDAuMSkpO1xuICB9XG4gIHBhdGgge1xuICAgIGZpbGw6ICNiYmI7XG4gIH1cbiAgc3ZnIHtcbiAgICB0cmFuc2Zvcm06IHNjYWxlKDAuNik7XG4gICAgei1pbmRleDogOTk5MDtcbiAgICBoZWlnaHQ6IDE3MnB4O1xuICB9XG5gO1xuXG4vKipcbiAqIE5hdmlnYXRpb24gY29tcG9uZW50IHRoYXQgZGlzcGxheXMgYSBjb21wYXNzIGNvbXBvbmVudCB3aGljaCBpbmRpY2F0ZXMgdGhlIGN1cnJlbnQgb3JpYW50YXRpb24gb2YgdGhlIG1hcCBpdCBpcyByZWdpc3RlcmVkIGZvciBhbmQgb2ZmZXJzIGNvbnRyb2xzIHRvIHR1cm4gdGhlIGJlYXJpbmcgOTDCsCBsZWZ0L3JpZ2h0IG9yIHJlc2V0IG5vcnRoIHRvIHBvaW50IHVwLlxuICpcbiAqIEFsbCBzdHlsZSBwcm9wcyBhcmUgYXBwbGllZCB1c2luZyBAZW1vdGlvbi9jc3MgdG8gYWxsb3cgbW9yZSBjb21wbGV4IGNzcyBzZWxlY3RvcnMuXG4gKlxuICogQGNvbXBvbmVudFxuICovXG5jb25zdCBNbE5hdmlnYXRpb25Db21wYXNzID0gKHByb3BzKSA9PiB7XG4gIC8vIFVzZSBhIHVzZVJlZiBob29rIHRvIHJlZmVyZW5jZSB0aGUgbGF5ZXIgb2JqZWN0IHRvIGJlIGFibGUgdG8gYWNjZXNzIGl0IGxhdGVyIGluc2lkZSB1c2VFZmZlY3QgaG9va3NcbiAgY29uc3QgbWFwQ29udGV4dCA9IHVzZUNvbnRleHQoTWFwQ29udGV4dCk7XG5cbiAgY29uc3QgaW5pdGlhbGl6ZWRSZWYgPSB1c2VSZWYoZmFsc2UpO1xuICBjb25zdCBtYXBSZWYgPSB1c2VSZWYodW5kZWZpbmVkKTtcbiAgY29uc3QgY29tcG9uZW50SWQgPSB1c2VSZWYoKHByb3BzLmlkUHJlZml4ID8gcHJvcHMuaWRQcmVmaXggOiBcIk1sTmF2aWdhdGlvbkNvbXBhc3MtXCIpICsgdXVpZHY0KCkpO1xuXG4gIGNvbnN0IFtiZWFyaW5nLCBzZXRCZWFyaW5nXSA9IHVzZVN0YXRlKDApO1xuXG4gIHVzZUVmZmVjdCgoKSA9PiB7XG4gICAgbGV0IF9jb21wb25lbnRJZCA9IGNvbXBvbmVudElkLmN1cnJlbnQ7XG5cbiAgICByZXR1cm4gKCkgPT4ge1xuICAgICAgLy8gVGhpcyBpcyB0aGUgY2xlYW51cCBmdW5jdGlvbiwgaXQgaXMgY2FsbGVkIHdoZW4gdGhpcyByZWFjdCBjb21wb25lbnQgaXMgcmVtb3ZlZCBmcm9tIHJlYWN0LWRvbVxuXG4gICAgICBpZiAobWFwUmVmLmN1cnJlbnQpIHtcbiAgICAgICAgbWFwUmVmLmN1cnJlbnQuY2xlYW51cChfY29tcG9uZW50SWQpO1xuICAgICAgICBtYXBSZWYuY3VycmVudCA9IHVuZGVmaW5lZDtcbiAgICAgIH1cbiAgICAgIGluaXRpYWxpemVkUmVmLmN1cnJlbnQgPSBmYWxzZTtcbiAgICB9O1xuICB9LCBbXSk7XG5cbiAgdXNlRWZmZWN0KCgpID0+IHtcbiAgICBpZiAoIW1hcENvbnRleHQubWFwRXhpc3RzKHByb3BzLm1hcElkKSB8fCBpbml0aWFsaXplZFJlZi5jdXJyZW50KSByZXR1cm47XG4gICAgaW5pdGlhbGl6ZWRSZWYuY3VycmVudCA9IHRydWU7XG4gICAgbWFwUmVmLmN1cnJlbnQgPSBtYXBDb250ZXh0LmdldE1hcChwcm9wcy5tYXBJZCk7XG5cbiAgICBtYXBSZWYuY3VycmVudC5vbihcbiAgICAgIFwicm90YXRlXCIsXG4gICAgICBmdW5jdGlvbiAoKSB7XG4gICAgICAgIHNldEJlYXJpbmcoTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudC5nZXRCZWFyaW5nKCkpKTtcbiAgICAgIH0sXG4gICAgICBjb21wb25lbnRJZC5jdXJyZW50XG4gICAgKTtcbiAgICBzZXRCZWFyaW5nKE1hdGgucm91bmQobWFwUmVmLmN1cnJlbnQuZ2V0QmVhcmluZygpKSk7XG4gIH0sIFttYXBDb250ZXh0Lm1hcElkcywgbWFwQ29udGV4dCwgcHJvcHMubWFwSWRdKTtcblxuICByZXR1cm4gKFxuICAgIDw+XG4gICAgICA8ZGl2XG4gICAgICAgIGNsYXNzTmFtZT17Y3NzKHtcbiAgICAgICAgICB6SW5kZXg6IDEwMDAsXG4gICAgICAgICAgdG9wOiAwLFxuICAgICAgICAgIHBvc2l0aW9uOiBcImFic29sdXRlXCIsXG4gICAgICAgICAgLi4ucHJvcHMuc3R5bGUsXG4gICAgICAgIH0pfVxuICAgICAgPlxuICAgICAgICA8ZGl2XG4gICAgICAgICAgY2xhc3NOYW1lPXtjc3Moe1xuICAgICAgICAgICAgcG9zaXRpb246IFwiYWJzb2x1dGVcIixcbiAgICAgICAgICAgIGJvcmRlcjogXCIxMHB4IHNvbGlkICNiY2JjYmNcIixcbiAgICAgICAgICAgIGJhY2tncm91bmRDb2xvcjogXCIjNzE3MTcxXCIsXG4gICAgICAgICAgICBiYWNrZ3JvdW5kOiBcInJhZGlhbC1ncmFkaWVudCgjNzE3MTcxLCAjNDE0MTQxKVwiLFxuICAgICAgICAgICAgaGVpZ2h0OiBcIjIwMHB4XCIsXG4gICAgICAgICAgICB3aWR0aDogXCIyMDBweFwiLFxuICAgICAgICAgICAgYm9yZGVyUmFkaXVzOiBcIjUwJVwiLFxuICAgICAgICAgICAgZGlzcGxheTogXCJmbGV4XCIsXG4gICAgICAgICAgICBqdXN0aWZ5Q29udGVudDogXCJjZW50ZXJcIixcbiAgICAgICAgICAgIHRyYW5zZm9ybTogXCJzY2FsZSgwLjIpIHRyYW5zbGF0ZVgoLTQ0OHB4KSB0cmFuc2xhdGVZKC00NDhweClcIixcbiAgICAgICAgICAgIC4uLnByb3BzLmJhY2tncm91bmRTdHlsZSxcbiAgICAgICAgICB9KX1cbiAgICAgICAgPlxuICAgICAgICAgIDxSb3RhdGVCdXR0b24gY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5yb3RhdGVSaWdodFN0eWxlIH0pfT5cbiAgICAgICAgICAgIDxSb3RhdGVSaWdodEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA+IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCAtIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyArIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVSaWdodEljb24+XG4gICAgICAgICAgPC9Sb3RhdGVCdXR0b24+XG4gICAgICAgICAgPE5lZWRsZUJ1dHRvblxuICAgICAgICAgICAgY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5uZWVkbGVTdHlsZSB9KX1cbiAgICAgICAgICAgIG9uQ2xpY2s9eygpID0+IHtcbiAgICAgICAgICAgICAgbWFwUmVmLmN1cnJlbnQ/LnNldEJlYXJpbmcoMCk7XG4gICAgICAgICAgICB9fVxuICAgICAgICAgID5cbiAgICAgICAgICAgIDxOZWVkbGVDb250YWluZXJcbiAgICAgICAgICAgICAgc3R5bGU9e3tcbiAgICAgICAgICAgICAgICB0cmFuc2Zvcm06IFwicm90YXRlKFwiICsgYmVhcmluZyArIFwiZGVnKVwiLFxuICAgICAgICAgICAgICB9fVxuICAgICAgICAgICAgPlxuICAgICAgICAgICAgICA8TmVlZGxlSWNvbiAvPlxuICAgICAgICAgICAgPC9OZWVkbGVDb250YWluZXI+XG4gICAgICAgICAgPC9OZWVkbGVCdXR0b24+XG4gICAgICAgICAgPFJvdGF0ZUJ1dHRvbiBjbGFzc05hbWU9e2Nzcyh7IC4uLnByb3BzLnJvdGF0ZUxlZnRTdHlsZSB9KX0+XG4gICAgICAgICAgICA8Um90YXRlTGVmdEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA8IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCArIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyAtIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVMZWZ0SWNvbj5cbiAgICAgICAgICA8L1JvdGF0ZUJ1dHRvbj5cbiAgICAgICAgPC9kaXY+XG4gICAgICA8L2Rpdj5cbiAgICA8Lz5cbiAgKTtcbn07XG5cbk1sTmF2aWdhdGlvbkNvbXBhc3MucHJvcFR5cGVzID0ge1xuICAvKipcbiAgICogQ29tcG9uZW50IGlkIHByZWZpeFxuICAgKi9cbiAgaWRQcmVmaXg6IFByb3BUeXBlcy5zdHJpbmcsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgY29tcG9uZW50LlxuICAgKi9cbiAgc3R5bGU6IFByb3BUeXBlcy5vYmplY3QsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgYmFja2dyb3VuZC5cbiAgICovXG4gIGJhY2tncm91bmRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbiAgLyoqXG4gICAqIFN0eWxlIG9iamVjdCB0byBhZGp1c3QgY3NzIGRlZmluaXRpb25zIG9mIHRoZSBjb21wYXNzIG5lZWRsZS5cbiAgICovXG4gIG5lZWRsZVN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSByaWdodCBidXR0b24uXG4gICAqL1xuICByb3RhdGVSaWdodFN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSBsZWZ0IGJ1dHRvbi5cbiAgICovXG4gIHJvdGF0ZUxlZnRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbn07XG5cbmV4cG9ydCBkZWZhdWx0IE1sTmF2aWdhdGlvbkNvbXBhc3M7XG4iXX0= */",
+  toString: _EMOTION_STRINGIFIED_CSS_ERROR__
+});
+
+var RotateButton = _styled("div", process.env.NODE_ENV === "production" ? {
+  target: "e12lzm5x0"
+} : {
+  target: "e12lzm5x0",
+  label: "RotateButton"
+})(process.env.NODE_ENV === "production" ? {
+  name: "1j4uu1m",
+  styles: "width:30%;margin-top:14px;z-index:999;display:flex;svg:hover{cursor:pointer;}svg:hover path{fill:#ececec;filter:drop-shadow(0px 0px 5px rgba(0, 0, 0, 0.1));}path{fill:#bbb;}svg{transform:scale(0.6);z-index:9990;height:172px;}"
+} : {
+  name: "1j4uu1m",
+  styles: "width:30%;margin-top:14px;z-index:999;display:flex;svg:hover{cursor:pointer;}svg:hover path{fill:#ececec;filter:drop-shadow(0px 0px 5px rgba(0, 0, 0, 0.1));}path{fill:#bbb;}svg{transform:scale(0.6);z-index:9990;height:172px;}",
+  map: "/*# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbIk1sTmF2aWdhdGlvbkNvbXBhc3MuanMiXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBMkQrQiIsImZpbGUiOiJNbE5hdmlnYXRpb25Db21wYXNzLmpzIiwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IFJlYWN0LCB7IHVzZVN0YXRlLCB1c2VSZWYsIHVzZUVmZmVjdCwgdXNlQ29udGV4dCB9IGZyb20gXCJyZWFjdFwiO1xuaW1wb3J0IFByb3BUeXBlcyBmcm9tIFwicHJvcC10eXBlc1wiO1xuXG5pbXBvcnQgeyBNYXBDb250ZXh0IH0gZnJvbSBcIkBtYXBjb21wb25lbnRzL3JlYWN0LWNvcmVcIjtcbmltcG9ydCB7IHY0IGFzIHV1aWR2NCB9IGZyb20gXCJ1dWlkXCI7XG5cbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIFJvdGF0ZVJpZ2h0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfcmlnaHQuc3ZnXCI7XG5pbXBvcnQgeyBSZWFjdENvbXBvbmVudCBhcyBSb3RhdGVMZWZ0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfbGVmdC5zdmdcIjtcbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIE5lZWRsZUljb24gfSBmcm9tIFwiLi9hc3NldHMvbmVlZGxlLnN2Z1wiO1xuXG5pbXBvcnQgc3R5bGVkIGZyb20gXCJAZW1vdGlvbi9zdHlsZWRcIjtcbmltcG9ydCB7IGNzcyB9IGZyb20gXCJAZW1vdGlvbi9jc3NcIjtcblxuY29uc3QgTmVlZGxlQnV0dG9uID0gc3R5bGVkLmRpdmBcbiAgd2lkdGg6IDQwJTtcbiAgZGlzcGxheTogZmxleDtcbiAgYWxpZ24taXRlbXM6IGNlbnRlcjtcblxuICAmOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgcGF0aCB7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDE1cHggcmdiYSgwLCAwLCAwLCAwLjIpKTtcbiAgfVxuICAmOmhvdmVyIHBhdGgge1xuICAgIGZpbHRlcjogZHJvcC1zaGFkb3coMHB4IDBweCAxM3B4IHJnYmEoMjU1LCAyNTUsIDI1NSwgMC4xKSk7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgyKSB7XG4gICAgZmlsbDogIzM0MzQzNDtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMikge1xuICAgIGZpbGw6ICM0MzQzNDM7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgxKSB7XG4gICAgZmlsbDogI2U5MDMxODtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMSkge1xuICAgIGZpbGw6ICNmYjQwNTI7XG4gIH1cbmA7XG5jb25zdCBOZWVkbGVDb250YWluZXIgPSBzdHlsZWQuZGl2YFxuICBwb2ludGVyLWV2ZW50czogbm9uZTtcbiAgZGlzcGxheTogZmxleDtcbiAgei1pbmRleDogMTAwMjtcbiAgcG9zaXRpb246IGFic29sdXRlO1xuICBhbGlnbi1pdGVtczogY2VudGVyO1xuXG4gIG1hcmdpbi1sZWZ0OiAtMzAlO1xuICBwYXRoOm50aC1vZi10eXBlKDIpIHtcbiAgfVxuICBzdmcgZyB7XG4gICAgdHJhbnNmb3JtOiB0cmFuc2xhdGUoLTc2LjcwNTMsIC0yOS43NzI3KSBzY2FsZSgyLCAxKTtcbiAgfVxuICBzdmcge1xuICAgIHotaW5kZXg6IDk5OTA7XG4gICAgaGVpZ2h0OiAxNTBweDtcbiAgICB3aWR0aDogMjAwcHg7XG4gIH1cbmA7XG5jb25zdCBSb3RhdGVCdXR0b24gPSBzdHlsZWQuZGl2YFxuICB3aWR0aDogMzAlO1xuICBtYXJnaW4tdG9wOiAxNHB4O1xuICB6LWluZGV4OiA5OTk7XG4gIGRpc3BsYXk6IGZsZXg7XG5cbiAgc3ZnOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgc3ZnOmhvdmVyIHBhdGgge1xuICAgIGZpbGw6ICNlY2VjZWM7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDVweCByZ2JhKDAsIDAsIDAsIDAuMSkpO1xuICB9XG4gIHBhdGgge1xuICAgIGZpbGw6ICNiYmI7XG4gIH1cbiAgc3ZnIHtcbiAgICB0cmFuc2Zvcm06IHNjYWxlKDAuNik7XG4gICAgei1pbmRleDogOTk5MDtcbiAgICBoZWlnaHQ6IDE3MnB4O1xuICB9XG5gO1xuXG4vKipcbiAqIE5hdmlnYXRpb24gY29tcG9uZW50IHRoYXQgZGlzcGxheXMgYSBjb21wYXNzIGNvbXBvbmVudCB3aGljaCBpbmRpY2F0ZXMgdGhlIGN1cnJlbnQgb3JpYW50YXRpb24gb2YgdGhlIG1hcCBpdCBpcyByZWdpc3RlcmVkIGZvciBhbmQgb2ZmZXJzIGNvbnRyb2xzIHRvIHR1cm4gdGhlIGJlYXJpbmcgOTDCsCBsZWZ0L3JpZ2h0IG9yIHJlc2V0IG5vcnRoIHRvIHBvaW50IHVwLlxuICpcbiAqIEFsbCBzdHlsZSBwcm9wcyBhcmUgYXBwbGllZCB1c2luZyBAZW1vdGlvbi9jc3MgdG8gYWxsb3cgbW9yZSBjb21wbGV4IGNzcyBzZWxlY3RvcnMuXG4gKlxuICogQGNvbXBvbmVudFxuICovXG5jb25zdCBNbE5hdmlnYXRpb25Db21wYXNzID0gKHByb3BzKSA9PiB7XG4gIC8vIFVzZSBhIHVzZVJlZiBob29rIHRvIHJlZmVyZW5jZSB0aGUgbGF5ZXIgb2JqZWN0IHRvIGJlIGFibGUgdG8gYWNjZXNzIGl0IGxhdGVyIGluc2lkZSB1c2VFZmZlY3QgaG9va3NcbiAgY29uc3QgbWFwQ29udGV4dCA9IHVzZUNvbnRleHQoTWFwQ29udGV4dCk7XG5cbiAgY29uc3QgaW5pdGlhbGl6ZWRSZWYgPSB1c2VSZWYoZmFsc2UpO1xuICBjb25zdCBtYXBSZWYgPSB1c2VSZWYodW5kZWZpbmVkKTtcbiAgY29uc3QgY29tcG9uZW50SWQgPSB1c2VSZWYoKHByb3BzLmlkUHJlZml4ID8gcHJvcHMuaWRQcmVmaXggOiBcIk1sTmF2aWdhdGlvbkNvbXBhc3MtXCIpICsgdXVpZHY0KCkpO1xuXG4gIGNvbnN0IFtiZWFyaW5nLCBzZXRCZWFyaW5nXSA9IHVzZVN0YXRlKDApO1xuXG4gIHVzZUVmZmVjdCgoKSA9PiB7XG4gICAgbGV0IF9jb21wb25lbnRJZCA9IGNvbXBvbmVudElkLmN1cnJlbnQ7XG5cbiAgICByZXR1cm4gKCkgPT4ge1xuICAgICAgLy8gVGhpcyBpcyB0aGUgY2xlYW51cCBmdW5jdGlvbiwgaXQgaXMgY2FsbGVkIHdoZW4gdGhpcyByZWFjdCBjb21wb25lbnQgaXMgcmVtb3ZlZCBmcm9tIHJlYWN0LWRvbVxuXG4gICAgICBpZiAobWFwUmVmLmN1cnJlbnQpIHtcbiAgICAgICAgbWFwUmVmLmN1cnJlbnQuY2xlYW51cChfY29tcG9uZW50SWQpO1xuICAgICAgICBtYXBSZWYuY3VycmVudCA9IHVuZGVmaW5lZDtcbiAgICAgIH1cbiAgICAgIGluaXRpYWxpemVkUmVmLmN1cnJlbnQgPSBmYWxzZTtcbiAgICB9O1xuICB9LCBbXSk7XG5cbiAgdXNlRWZmZWN0KCgpID0+IHtcbiAgICBpZiAoIW1hcENvbnRleHQubWFwRXhpc3RzKHByb3BzLm1hcElkKSB8fCBpbml0aWFsaXplZFJlZi5jdXJyZW50KSByZXR1cm47XG4gICAgaW5pdGlhbGl6ZWRSZWYuY3VycmVudCA9IHRydWU7XG4gICAgbWFwUmVmLmN1cnJlbnQgPSBtYXBDb250ZXh0LmdldE1hcChwcm9wcy5tYXBJZCk7XG5cbiAgICBtYXBSZWYuY3VycmVudC5vbihcbiAgICAgIFwicm90YXRlXCIsXG4gICAgICBmdW5jdGlvbiAoKSB7XG4gICAgICAgIHNldEJlYXJpbmcoTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudC5nZXRCZWFyaW5nKCkpKTtcbiAgICAgIH0sXG4gICAgICBjb21wb25lbnRJZC5jdXJyZW50XG4gICAgKTtcbiAgICBzZXRCZWFyaW5nKE1hdGgucm91bmQobWFwUmVmLmN1cnJlbnQuZ2V0QmVhcmluZygpKSk7XG4gIH0sIFttYXBDb250ZXh0Lm1hcElkcywgbWFwQ29udGV4dCwgcHJvcHMubWFwSWRdKTtcblxuICByZXR1cm4gKFxuICAgIDw+XG4gICAgICA8ZGl2XG4gICAgICAgIGNsYXNzTmFtZT17Y3NzKHtcbiAgICAgICAgICB6SW5kZXg6IDEwMDAsXG4gICAgICAgICAgdG9wOiAwLFxuICAgICAgICAgIHBvc2l0aW9uOiBcImFic29sdXRlXCIsXG4gICAgICAgICAgLi4ucHJvcHMuc3R5bGUsXG4gICAgICAgIH0pfVxuICAgICAgPlxuICAgICAgICA8ZGl2XG4gICAgICAgICAgY2xhc3NOYW1lPXtjc3Moe1xuICAgICAgICAgICAgcG9zaXRpb246IFwiYWJzb2x1dGVcIixcbiAgICAgICAgICAgIGJvcmRlcjogXCIxMHB4IHNvbGlkICNiY2JjYmNcIixcbiAgICAgICAgICAgIGJhY2tncm91bmRDb2xvcjogXCIjNzE3MTcxXCIsXG4gICAgICAgICAgICBiYWNrZ3JvdW5kOiBcInJhZGlhbC1ncmFkaWVudCgjNzE3MTcxLCAjNDE0MTQxKVwiLFxuICAgICAgICAgICAgaGVpZ2h0OiBcIjIwMHB4XCIsXG4gICAgICAgICAgICB3aWR0aDogXCIyMDBweFwiLFxuICAgICAgICAgICAgYm9yZGVyUmFkaXVzOiBcIjUwJVwiLFxuICAgICAgICAgICAgZGlzcGxheTogXCJmbGV4XCIsXG4gICAgICAgICAgICBqdXN0aWZ5Q29udGVudDogXCJjZW50ZXJcIixcbiAgICAgICAgICAgIHRyYW5zZm9ybTogXCJzY2FsZSgwLjIpIHRyYW5zbGF0ZVgoLTQ0OHB4KSB0cmFuc2xhdGVZKC00NDhweClcIixcbiAgICAgICAgICAgIC4uLnByb3BzLmJhY2tncm91bmRTdHlsZSxcbiAgICAgICAgICB9KX1cbiAgICAgICAgPlxuICAgICAgICAgIDxSb3RhdGVCdXR0b24gY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5yb3RhdGVSaWdodFN0eWxlIH0pfT5cbiAgICAgICAgICAgIDxSb3RhdGVSaWdodEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA+IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCAtIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyArIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVSaWdodEljb24+XG4gICAgICAgICAgPC9Sb3RhdGVCdXR0b24+XG4gICAgICAgICAgPE5lZWRsZUJ1dHRvblxuICAgICAgICAgICAgY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5uZWVkbGVTdHlsZSB9KX1cbiAgICAgICAgICAgIG9uQ2xpY2s9eygpID0+IHtcbiAgICAgICAgICAgICAgbWFwUmVmLmN1cnJlbnQ/LnNldEJlYXJpbmcoMCk7XG4gICAgICAgICAgICB9fVxuICAgICAgICAgID5cbiAgICAgICAgICAgIDxOZWVkbGVDb250YWluZXJcbiAgICAgICAgICAgICAgc3R5bGU9e3tcbiAgICAgICAgICAgICAgICB0cmFuc2Zvcm06IFwicm90YXRlKFwiICsgYmVhcmluZyArIFwiZGVnKVwiLFxuICAgICAgICAgICAgICB9fVxuICAgICAgICAgICAgPlxuICAgICAgICAgICAgICA8TmVlZGxlSWNvbiAvPlxuICAgICAgICAgICAgPC9OZWVkbGVDb250YWluZXI+XG4gICAgICAgICAgPC9OZWVkbGVCdXR0b24+XG4gICAgICAgICAgPFJvdGF0ZUJ1dHRvbiBjbGFzc05hbWU9e2Nzcyh7IC4uLnByb3BzLnJvdGF0ZUxlZnRTdHlsZSB9KX0+XG4gICAgICAgICAgICA8Um90YXRlTGVmdEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA8IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCArIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyAtIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVMZWZ0SWNvbj5cbiAgICAgICAgICA8L1JvdGF0ZUJ1dHRvbj5cbiAgICAgICAgPC9kaXY+XG4gICAgICA8L2Rpdj5cbiAgICA8Lz5cbiAgKTtcbn07XG5cbk1sTmF2aWdhdGlvbkNvbXBhc3MucHJvcFR5cGVzID0ge1xuICAvKipcbiAgICogQ29tcG9uZW50IGlkIHByZWZpeFxuICAgKi9cbiAgaWRQcmVmaXg6IFByb3BUeXBlcy5zdHJpbmcsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgY29tcG9uZW50LlxuICAgKi9cbiAgc3R5bGU6IFByb3BUeXBlcy5vYmplY3QsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgYmFja2dyb3VuZC5cbiAgICovXG4gIGJhY2tncm91bmRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbiAgLyoqXG4gICAqIFN0eWxlIG9iamVjdCB0byBhZGp1c3QgY3NzIGRlZmluaXRpb25zIG9mIHRoZSBjb21wYXNzIG5lZWRsZS5cbiAgICovXG4gIG5lZWRsZVN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSByaWdodCBidXR0b24uXG4gICAqL1xuICByb3RhdGVSaWdodFN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSBsZWZ0IGJ1dHRvbi5cbiAgICovXG4gIHJvdGF0ZUxlZnRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbn07XG5cbmV4cG9ydCBkZWZhdWx0IE1sTmF2aWdhdGlvbkNvbXBhc3M7XG4iXX0= */",
+  toString: _EMOTION_STRINGIFIED_CSS_ERROR__
+});
+/**
+ * Navigation component that displays a compass component which indicates the current oriantation of the map it is registered for and offers controls to turn the bearing 90° left/right or reset north to point up.
+ *
+ * All style props are applied using @emotion/css to allow more complex css selectors.
+ *
+ * @component
+ */
+
+
+var MlNavigationCompass = function MlNavigationCompass(props) {
+  // Use a useRef hook to reference the layer object to be able to access it later inside useEffect hooks
+  var mapContext = useContext(MapContext);
+  var initializedRef = useRef(false);
+  var mapRef = useRef(undefined);
+  var componentId = useRef((props.idPrefix ? props.idPrefix : "MlNavigationCompass-") + v4());
+
+  var _useState = useState(0),
+      _useState2 = _slicedToArray(_useState, 2),
+      bearing = _useState2[0],
+      setBearing = _useState2[1];
+
+  useEffect(function () {
+    var _componentId = componentId.current;
+    return function () {
+      // This is the cleanup function, it is called when this react component is removed from react-dom
+      if (mapRef.current) {
+        mapRef.current.cleanup(_componentId);
+        mapRef.current = undefined;
+      }
+
+      initializedRef.current = false;
+    };
+  }, []);
+  useEffect(function () {
+    if (!mapContext.mapExists(props.mapId) || initializedRef.current) return;
+    initializedRef.current = true;
+    mapRef.current = mapContext.getMap(props.mapId);
+    mapRef.current.on("rotate", function () {
+      setBearing(Math.round(mapRef.current.getBearing()));
+    }, componentId.current);
+    setBearing(Math.round(mapRef.current.getBearing()));
+  }, [mapContext.mapIds, mapContext, props.mapId]);
+  return /*#__PURE__*/React__default.createElement(React__default.Fragment, null, /*#__PURE__*/React__default.createElement("div", {
+    className: /*#__PURE__*/css(_objectSpread2({
+      zIndex: 1000,
+      top: 0,
+      position: "absolute"
+    }, props.style), process.env.NODE_ENV === "production" ? "" : ";label:MlNavigationCompass;", process.env.NODE_ENV === "production" ? "" : "/*# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbIk1sTmF2aWdhdGlvbkNvbXBhc3MuanMiXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBbUltQiIsImZpbGUiOiJNbE5hdmlnYXRpb25Db21wYXNzLmpzIiwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IFJlYWN0LCB7IHVzZVN0YXRlLCB1c2VSZWYsIHVzZUVmZmVjdCwgdXNlQ29udGV4dCB9IGZyb20gXCJyZWFjdFwiO1xuaW1wb3J0IFByb3BUeXBlcyBmcm9tIFwicHJvcC10eXBlc1wiO1xuXG5pbXBvcnQgeyBNYXBDb250ZXh0IH0gZnJvbSBcIkBtYXBjb21wb25lbnRzL3JlYWN0LWNvcmVcIjtcbmltcG9ydCB7IHY0IGFzIHV1aWR2NCB9IGZyb20gXCJ1dWlkXCI7XG5cbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIFJvdGF0ZVJpZ2h0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfcmlnaHQuc3ZnXCI7XG5pbXBvcnQgeyBSZWFjdENvbXBvbmVudCBhcyBSb3RhdGVMZWZ0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfbGVmdC5zdmdcIjtcbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIE5lZWRsZUljb24gfSBmcm9tIFwiLi9hc3NldHMvbmVlZGxlLnN2Z1wiO1xuXG5pbXBvcnQgc3R5bGVkIGZyb20gXCJAZW1vdGlvbi9zdHlsZWRcIjtcbmltcG9ydCB7IGNzcyB9IGZyb20gXCJAZW1vdGlvbi9jc3NcIjtcblxuY29uc3QgTmVlZGxlQnV0dG9uID0gc3R5bGVkLmRpdmBcbiAgd2lkdGg6IDQwJTtcbiAgZGlzcGxheTogZmxleDtcbiAgYWxpZ24taXRlbXM6IGNlbnRlcjtcblxuICAmOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgcGF0aCB7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDE1cHggcmdiYSgwLCAwLCAwLCAwLjIpKTtcbiAgfVxuICAmOmhvdmVyIHBhdGgge1xuICAgIGZpbHRlcjogZHJvcC1zaGFkb3coMHB4IDBweCAxM3B4IHJnYmEoMjU1LCAyNTUsIDI1NSwgMC4xKSk7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgyKSB7XG4gICAgZmlsbDogIzM0MzQzNDtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMikge1xuICAgIGZpbGw6ICM0MzQzNDM7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgxKSB7XG4gICAgZmlsbDogI2U5MDMxODtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMSkge1xuICAgIGZpbGw6ICNmYjQwNTI7XG4gIH1cbmA7XG5jb25zdCBOZWVkbGVDb250YWluZXIgPSBzdHlsZWQuZGl2YFxuICBwb2ludGVyLWV2ZW50czogbm9uZTtcbiAgZGlzcGxheTogZmxleDtcbiAgei1pbmRleDogMTAwMjtcbiAgcG9zaXRpb246IGFic29sdXRlO1xuICBhbGlnbi1pdGVtczogY2VudGVyO1xuXG4gIG1hcmdpbi1sZWZ0OiAtMzAlO1xuICBwYXRoOm50aC1vZi10eXBlKDIpIHtcbiAgfVxuICBzdmcgZyB7XG4gICAgdHJhbnNmb3JtOiB0cmFuc2xhdGUoLTc2LjcwNTMsIC0yOS43NzI3KSBzY2FsZSgyLCAxKTtcbiAgfVxuICBzdmcge1xuICAgIHotaW5kZXg6IDk5OTA7XG4gICAgaGVpZ2h0OiAxNTBweDtcbiAgICB3aWR0aDogMjAwcHg7XG4gIH1cbmA7XG5jb25zdCBSb3RhdGVCdXR0b24gPSBzdHlsZWQuZGl2YFxuICB3aWR0aDogMzAlO1xuICBtYXJnaW4tdG9wOiAxNHB4O1xuICB6LWluZGV4OiA5OTk7XG4gIGRpc3BsYXk6IGZsZXg7XG5cbiAgc3ZnOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgc3ZnOmhvdmVyIHBhdGgge1xuICAgIGZpbGw6ICNlY2VjZWM7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDVweCByZ2JhKDAsIDAsIDAsIDAuMSkpO1xuICB9XG4gIHBhdGgge1xuICAgIGZpbGw6ICNiYmI7XG4gIH1cbiAgc3ZnIHtcbiAgICB0cmFuc2Zvcm06IHNjYWxlKDAuNik7XG4gICAgei1pbmRleDogOTk5MDtcbiAgICBoZWlnaHQ6IDE3MnB4O1xuICB9XG5gO1xuXG4vKipcbiAqIE5hdmlnYXRpb24gY29tcG9uZW50IHRoYXQgZGlzcGxheXMgYSBjb21wYXNzIGNvbXBvbmVudCB3aGljaCBpbmRpY2F0ZXMgdGhlIGN1cnJlbnQgb3JpYW50YXRpb24gb2YgdGhlIG1hcCBpdCBpcyByZWdpc3RlcmVkIGZvciBhbmQgb2ZmZXJzIGNvbnRyb2xzIHRvIHR1cm4gdGhlIGJlYXJpbmcgOTDCsCBsZWZ0L3JpZ2h0IG9yIHJlc2V0IG5vcnRoIHRvIHBvaW50IHVwLlxuICpcbiAqIEFsbCBzdHlsZSBwcm9wcyBhcmUgYXBwbGllZCB1c2luZyBAZW1vdGlvbi9jc3MgdG8gYWxsb3cgbW9yZSBjb21wbGV4IGNzcyBzZWxlY3RvcnMuXG4gKlxuICogQGNvbXBvbmVudFxuICovXG5jb25zdCBNbE5hdmlnYXRpb25Db21wYXNzID0gKHByb3BzKSA9PiB7XG4gIC8vIFVzZSBhIHVzZVJlZiBob29rIHRvIHJlZmVyZW5jZSB0aGUgbGF5ZXIgb2JqZWN0IHRvIGJlIGFibGUgdG8gYWNjZXNzIGl0IGxhdGVyIGluc2lkZSB1c2VFZmZlY3QgaG9va3NcbiAgY29uc3QgbWFwQ29udGV4dCA9IHVzZUNvbnRleHQoTWFwQ29udGV4dCk7XG5cbiAgY29uc3QgaW5pdGlhbGl6ZWRSZWYgPSB1c2VSZWYoZmFsc2UpO1xuICBjb25zdCBtYXBSZWYgPSB1c2VSZWYodW5kZWZpbmVkKTtcbiAgY29uc3QgY29tcG9uZW50SWQgPSB1c2VSZWYoKHByb3BzLmlkUHJlZml4ID8gcHJvcHMuaWRQcmVmaXggOiBcIk1sTmF2aWdhdGlvbkNvbXBhc3MtXCIpICsgdXVpZHY0KCkpO1xuXG4gIGNvbnN0IFtiZWFyaW5nLCBzZXRCZWFyaW5nXSA9IHVzZVN0YXRlKDApO1xuXG4gIHVzZUVmZmVjdCgoKSA9PiB7XG4gICAgbGV0IF9jb21wb25lbnRJZCA9IGNvbXBvbmVudElkLmN1cnJlbnQ7XG5cbiAgICByZXR1cm4gKCkgPT4ge1xuICAgICAgLy8gVGhpcyBpcyB0aGUgY2xlYW51cCBmdW5jdGlvbiwgaXQgaXMgY2FsbGVkIHdoZW4gdGhpcyByZWFjdCBjb21wb25lbnQgaXMgcmVtb3ZlZCBmcm9tIHJlYWN0LWRvbVxuXG4gICAgICBpZiAobWFwUmVmLmN1cnJlbnQpIHtcbiAgICAgICAgbWFwUmVmLmN1cnJlbnQuY2xlYW51cChfY29tcG9uZW50SWQpO1xuICAgICAgICBtYXBSZWYuY3VycmVudCA9IHVuZGVmaW5lZDtcbiAgICAgIH1cbiAgICAgIGluaXRpYWxpemVkUmVmLmN1cnJlbnQgPSBmYWxzZTtcbiAgICB9O1xuICB9LCBbXSk7XG5cbiAgdXNlRWZmZWN0KCgpID0+IHtcbiAgICBpZiAoIW1hcENvbnRleHQubWFwRXhpc3RzKHByb3BzLm1hcElkKSB8fCBpbml0aWFsaXplZFJlZi5jdXJyZW50KSByZXR1cm47XG4gICAgaW5pdGlhbGl6ZWRSZWYuY3VycmVudCA9IHRydWU7XG4gICAgbWFwUmVmLmN1cnJlbnQgPSBtYXBDb250ZXh0LmdldE1hcChwcm9wcy5tYXBJZCk7XG5cbiAgICBtYXBSZWYuY3VycmVudC5vbihcbiAgICAgIFwicm90YXRlXCIsXG4gICAgICBmdW5jdGlvbiAoKSB7XG4gICAgICAgIHNldEJlYXJpbmcoTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudC5nZXRCZWFyaW5nKCkpKTtcbiAgICAgIH0sXG4gICAgICBjb21wb25lbnRJZC5jdXJyZW50XG4gICAgKTtcbiAgICBzZXRCZWFyaW5nKE1hdGgucm91bmQobWFwUmVmLmN1cnJlbnQuZ2V0QmVhcmluZygpKSk7XG4gIH0sIFttYXBDb250ZXh0Lm1hcElkcywgbWFwQ29udGV4dCwgcHJvcHMubWFwSWRdKTtcblxuICByZXR1cm4gKFxuICAgIDw+XG4gICAgICA8ZGl2XG4gICAgICAgIGNsYXNzTmFtZT17Y3NzKHtcbiAgICAgICAgICB6SW5kZXg6IDEwMDAsXG4gICAgICAgICAgdG9wOiAwLFxuICAgICAgICAgIHBvc2l0aW9uOiBcImFic29sdXRlXCIsXG4gICAgICAgICAgLi4ucHJvcHMuc3R5bGUsXG4gICAgICAgIH0pfVxuICAgICAgPlxuICAgICAgICA8ZGl2XG4gICAgICAgICAgY2xhc3NOYW1lPXtjc3Moe1xuICAgICAgICAgICAgcG9zaXRpb246IFwiYWJzb2x1dGVcIixcbiAgICAgICAgICAgIGJvcmRlcjogXCIxMHB4IHNvbGlkICNiY2JjYmNcIixcbiAgICAgICAgICAgIGJhY2tncm91bmRDb2xvcjogXCIjNzE3MTcxXCIsXG4gICAgICAgICAgICBiYWNrZ3JvdW5kOiBcInJhZGlhbC1ncmFkaWVudCgjNzE3MTcxLCAjNDE0MTQxKVwiLFxuICAgICAgICAgICAgaGVpZ2h0OiBcIjIwMHB4XCIsXG4gICAgICAgICAgICB3aWR0aDogXCIyMDBweFwiLFxuICAgICAgICAgICAgYm9yZGVyUmFkaXVzOiBcIjUwJVwiLFxuICAgICAgICAgICAgZGlzcGxheTogXCJmbGV4XCIsXG4gICAgICAgICAgICBqdXN0aWZ5Q29udGVudDogXCJjZW50ZXJcIixcbiAgICAgICAgICAgIHRyYW5zZm9ybTogXCJzY2FsZSgwLjIpIHRyYW5zbGF0ZVgoLTQ0OHB4KSB0cmFuc2xhdGVZKC00NDhweClcIixcbiAgICAgICAgICAgIC4uLnByb3BzLmJhY2tncm91bmRTdHlsZSxcbiAgICAgICAgICB9KX1cbiAgICAgICAgPlxuICAgICAgICAgIDxSb3RhdGVCdXR0b24gY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5yb3RhdGVSaWdodFN0eWxlIH0pfT5cbiAgICAgICAgICAgIDxSb3RhdGVSaWdodEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA+IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCAtIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyArIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVSaWdodEljb24+XG4gICAgICAgICAgPC9Sb3RhdGVCdXR0b24+XG4gICAgICAgICAgPE5lZWRsZUJ1dHRvblxuICAgICAgICAgICAgY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5uZWVkbGVTdHlsZSB9KX1cbiAgICAgICAgICAgIG9uQ2xpY2s9eygpID0+IHtcbiAgICAgICAgICAgICAgbWFwUmVmLmN1cnJlbnQ/LnNldEJlYXJpbmcoMCk7XG4gICAgICAgICAgICB9fVxuICAgICAgICAgID5cbiAgICAgICAgICAgIDxOZWVkbGVDb250YWluZXJcbiAgICAgICAgICAgICAgc3R5bGU9e3tcbiAgICAgICAgICAgICAgICB0cmFuc2Zvcm06IFwicm90YXRlKFwiICsgYmVhcmluZyArIFwiZGVnKVwiLFxuICAgICAgICAgICAgICB9fVxuICAgICAgICAgICAgPlxuICAgICAgICAgICAgICA8TmVlZGxlSWNvbiAvPlxuICAgICAgICAgICAgPC9OZWVkbGVDb250YWluZXI+XG4gICAgICAgICAgPC9OZWVkbGVCdXR0b24+XG4gICAgICAgICAgPFJvdGF0ZUJ1dHRvbiBjbGFzc05hbWU9e2Nzcyh7IC4uLnByb3BzLnJvdGF0ZUxlZnRTdHlsZSB9KX0+XG4gICAgICAgICAgICA8Um90YXRlTGVmdEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA8IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCArIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyAtIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVMZWZ0SWNvbj5cbiAgICAgICAgICA8L1JvdGF0ZUJ1dHRvbj5cbiAgICAgICAgPC9kaXY+XG4gICAgICA8L2Rpdj5cbiAgICA8Lz5cbiAgKTtcbn07XG5cbk1sTmF2aWdhdGlvbkNvbXBhc3MucHJvcFR5cGVzID0ge1xuICAvKipcbiAgICogQ29tcG9uZW50IGlkIHByZWZpeFxuICAgKi9cbiAgaWRQcmVmaXg6IFByb3BUeXBlcy5zdHJpbmcsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgY29tcG9uZW50LlxuICAgKi9cbiAgc3R5bGU6IFByb3BUeXBlcy5vYmplY3QsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgYmFja2dyb3VuZC5cbiAgICovXG4gIGJhY2tncm91bmRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbiAgLyoqXG4gICAqIFN0eWxlIG9iamVjdCB0byBhZGp1c3QgY3NzIGRlZmluaXRpb25zIG9mIHRoZSBjb21wYXNzIG5lZWRsZS5cbiAgICovXG4gIG5lZWRsZVN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSByaWdodCBidXR0b24uXG4gICAqL1xuICByb3RhdGVSaWdodFN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSBsZWZ0IGJ1dHRvbi5cbiAgICovXG4gIHJvdGF0ZUxlZnRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbn07XG5cbmV4cG9ydCBkZWZhdWx0IE1sTmF2aWdhdGlvbkNvbXBhc3M7XG4iXX0= */")
+  }, /*#__PURE__*/React__default.createElement("div", {
+    className: /*#__PURE__*/css(_objectSpread2({
+      position: "absolute",
+      border: "10px solid #bcbcbc",
+      backgroundColor: "#717171",
+      background: "radial-gradient(#717171, #414141)",
+      height: "200px",
+      width: "200px",
+      borderRadius: "50%",
+      display: "flex",
+      justifyContent: "center",
+      transform: "scale(0.2) translateX(-448px) translateY(-448px)"
+    }, props.backgroundStyle), process.env.NODE_ENV === "production" ? "" : ";label:MlNavigationCompass;", process.env.NODE_ENV === "production" ? "" : "/*# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbIk1sTmF2aWdhdGlvbkNvbXBhc3MuanMiXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBMklxQiIsImZpbGUiOiJNbE5hdmlnYXRpb25Db21wYXNzLmpzIiwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IFJlYWN0LCB7IHVzZVN0YXRlLCB1c2VSZWYsIHVzZUVmZmVjdCwgdXNlQ29udGV4dCB9IGZyb20gXCJyZWFjdFwiO1xuaW1wb3J0IFByb3BUeXBlcyBmcm9tIFwicHJvcC10eXBlc1wiO1xuXG5pbXBvcnQgeyBNYXBDb250ZXh0IH0gZnJvbSBcIkBtYXBjb21wb25lbnRzL3JlYWN0LWNvcmVcIjtcbmltcG9ydCB7IHY0IGFzIHV1aWR2NCB9IGZyb20gXCJ1dWlkXCI7XG5cbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIFJvdGF0ZVJpZ2h0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfcmlnaHQuc3ZnXCI7XG5pbXBvcnQgeyBSZWFjdENvbXBvbmVudCBhcyBSb3RhdGVMZWZ0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfbGVmdC5zdmdcIjtcbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIE5lZWRsZUljb24gfSBmcm9tIFwiLi9hc3NldHMvbmVlZGxlLnN2Z1wiO1xuXG5pbXBvcnQgc3R5bGVkIGZyb20gXCJAZW1vdGlvbi9zdHlsZWRcIjtcbmltcG9ydCB7IGNzcyB9IGZyb20gXCJAZW1vdGlvbi9jc3NcIjtcblxuY29uc3QgTmVlZGxlQnV0dG9uID0gc3R5bGVkLmRpdmBcbiAgd2lkdGg6IDQwJTtcbiAgZGlzcGxheTogZmxleDtcbiAgYWxpZ24taXRlbXM6IGNlbnRlcjtcblxuICAmOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgcGF0aCB7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDE1cHggcmdiYSgwLCAwLCAwLCAwLjIpKTtcbiAgfVxuICAmOmhvdmVyIHBhdGgge1xuICAgIGZpbHRlcjogZHJvcC1zaGFkb3coMHB4IDBweCAxM3B4IHJnYmEoMjU1LCAyNTUsIDI1NSwgMC4xKSk7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgyKSB7XG4gICAgZmlsbDogIzM0MzQzNDtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMikge1xuICAgIGZpbGw6ICM0MzQzNDM7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgxKSB7XG4gICAgZmlsbDogI2U5MDMxODtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMSkge1xuICAgIGZpbGw6ICNmYjQwNTI7XG4gIH1cbmA7XG5jb25zdCBOZWVkbGVDb250YWluZXIgPSBzdHlsZWQuZGl2YFxuICBwb2ludGVyLWV2ZW50czogbm9uZTtcbiAgZGlzcGxheTogZmxleDtcbiAgei1pbmRleDogMTAwMjtcbiAgcG9zaXRpb246IGFic29sdXRlO1xuICBhbGlnbi1pdGVtczogY2VudGVyO1xuXG4gIG1hcmdpbi1sZWZ0OiAtMzAlO1xuICBwYXRoOm50aC1vZi10eXBlKDIpIHtcbiAgfVxuICBzdmcgZyB7XG4gICAgdHJhbnNmb3JtOiB0cmFuc2xhdGUoLTc2LjcwNTMsIC0yOS43NzI3KSBzY2FsZSgyLCAxKTtcbiAgfVxuICBzdmcge1xuICAgIHotaW5kZXg6IDk5OTA7XG4gICAgaGVpZ2h0OiAxNTBweDtcbiAgICB3aWR0aDogMjAwcHg7XG4gIH1cbmA7XG5jb25zdCBSb3RhdGVCdXR0b24gPSBzdHlsZWQuZGl2YFxuICB3aWR0aDogMzAlO1xuICBtYXJnaW4tdG9wOiAxNHB4O1xuICB6LWluZGV4OiA5OTk7XG4gIGRpc3BsYXk6IGZsZXg7XG5cbiAgc3ZnOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgc3ZnOmhvdmVyIHBhdGgge1xuICAgIGZpbGw6ICNlY2VjZWM7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDVweCByZ2JhKDAsIDAsIDAsIDAuMSkpO1xuICB9XG4gIHBhdGgge1xuICAgIGZpbGw6ICNiYmI7XG4gIH1cbiAgc3ZnIHtcbiAgICB0cmFuc2Zvcm06IHNjYWxlKDAuNik7XG4gICAgei1pbmRleDogOTk5MDtcbiAgICBoZWlnaHQ6IDE3MnB4O1xuICB9XG5gO1xuXG4vKipcbiAqIE5hdmlnYXRpb24gY29tcG9uZW50IHRoYXQgZGlzcGxheXMgYSBjb21wYXNzIGNvbXBvbmVudCB3aGljaCBpbmRpY2F0ZXMgdGhlIGN1cnJlbnQgb3JpYW50YXRpb24gb2YgdGhlIG1hcCBpdCBpcyByZWdpc3RlcmVkIGZvciBhbmQgb2ZmZXJzIGNvbnRyb2xzIHRvIHR1cm4gdGhlIGJlYXJpbmcgOTDCsCBsZWZ0L3JpZ2h0IG9yIHJlc2V0IG5vcnRoIHRvIHBvaW50IHVwLlxuICpcbiAqIEFsbCBzdHlsZSBwcm9wcyBhcmUgYXBwbGllZCB1c2luZyBAZW1vdGlvbi9jc3MgdG8gYWxsb3cgbW9yZSBjb21wbGV4IGNzcyBzZWxlY3RvcnMuXG4gKlxuICogQGNvbXBvbmVudFxuICovXG5jb25zdCBNbE5hdmlnYXRpb25Db21wYXNzID0gKHByb3BzKSA9PiB7XG4gIC8vIFVzZSBhIHVzZVJlZiBob29rIHRvIHJlZmVyZW5jZSB0aGUgbGF5ZXIgb2JqZWN0IHRvIGJlIGFibGUgdG8gYWNjZXNzIGl0IGxhdGVyIGluc2lkZSB1c2VFZmZlY3QgaG9va3NcbiAgY29uc3QgbWFwQ29udGV4dCA9IHVzZUNvbnRleHQoTWFwQ29udGV4dCk7XG5cbiAgY29uc3QgaW5pdGlhbGl6ZWRSZWYgPSB1c2VSZWYoZmFsc2UpO1xuICBjb25zdCBtYXBSZWYgPSB1c2VSZWYodW5kZWZpbmVkKTtcbiAgY29uc3QgY29tcG9uZW50SWQgPSB1c2VSZWYoKHByb3BzLmlkUHJlZml4ID8gcHJvcHMuaWRQcmVmaXggOiBcIk1sTmF2aWdhdGlvbkNvbXBhc3MtXCIpICsgdXVpZHY0KCkpO1xuXG4gIGNvbnN0IFtiZWFyaW5nLCBzZXRCZWFyaW5nXSA9IHVzZVN0YXRlKDApO1xuXG4gIHVzZUVmZmVjdCgoKSA9PiB7XG4gICAgbGV0IF9jb21wb25lbnRJZCA9IGNvbXBvbmVudElkLmN1cnJlbnQ7XG5cbiAgICByZXR1cm4gKCkgPT4ge1xuICAgICAgLy8gVGhpcyBpcyB0aGUgY2xlYW51cCBmdW5jdGlvbiwgaXQgaXMgY2FsbGVkIHdoZW4gdGhpcyByZWFjdCBjb21wb25lbnQgaXMgcmVtb3ZlZCBmcm9tIHJlYWN0LWRvbVxuXG4gICAgICBpZiAobWFwUmVmLmN1cnJlbnQpIHtcbiAgICAgICAgbWFwUmVmLmN1cnJlbnQuY2xlYW51cChfY29tcG9uZW50SWQpO1xuICAgICAgICBtYXBSZWYuY3VycmVudCA9IHVuZGVmaW5lZDtcbiAgICAgIH1cbiAgICAgIGluaXRpYWxpemVkUmVmLmN1cnJlbnQgPSBmYWxzZTtcbiAgICB9O1xuICB9LCBbXSk7XG5cbiAgdXNlRWZmZWN0KCgpID0+IHtcbiAgICBpZiAoIW1hcENvbnRleHQubWFwRXhpc3RzKHByb3BzLm1hcElkKSB8fCBpbml0aWFsaXplZFJlZi5jdXJyZW50KSByZXR1cm47XG4gICAgaW5pdGlhbGl6ZWRSZWYuY3VycmVudCA9IHRydWU7XG4gICAgbWFwUmVmLmN1cnJlbnQgPSBtYXBDb250ZXh0LmdldE1hcChwcm9wcy5tYXBJZCk7XG5cbiAgICBtYXBSZWYuY3VycmVudC5vbihcbiAgICAgIFwicm90YXRlXCIsXG4gICAgICBmdW5jdGlvbiAoKSB7XG4gICAgICAgIHNldEJlYXJpbmcoTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudC5nZXRCZWFyaW5nKCkpKTtcbiAgICAgIH0sXG4gICAgICBjb21wb25lbnRJZC5jdXJyZW50XG4gICAgKTtcbiAgICBzZXRCZWFyaW5nKE1hdGgucm91bmQobWFwUmVmLmN1cnJlbnQuZ2V0QmVhcmluZygpKSk7XG4gIH0sIFttYXBDb250ZXh0Lm1hcElkcywgbWFwQ29udGV4dCwgcHJvcHMubWFwSWRdKTtcblxuICByZXR1cm4gKFxuICAgIDw+XG4gICAgICA8ZGl2XG4gICAgICAgIGNsYXNzTmFtZT17Y3NzKHtcbiAgICAgICAgICB6SW5kZXg6IDEwMDAsXG4gICAgICAgICAgdG9wOiAwLFxuICAgICAgICAgIHBvc2l0aW9uOiBcImFic29sdXRlXCIsXG4gICAgICAgICAgLi4ucHJvcHMuc3R5bGUsXG4gICAgICAgIH0pfVxuICAgICAgPlxuICAgICAgICA8ZGl2XG4gICAgICAgICAgY2xhc3NOYW1lPXtjc3Moe1xuICAgICAgICAgICAgcG9zaXRpb246IFwiYWJzb2x1dGVcIixcbiAgICAgICAgICAgIGJvcmRlcjogXCIxMHB4IHNvbGlkICNiY2JjYmNcIixcbiAgICAgICAgICAgIGJhY2tncm91bmRDb2xvcjogXCIjNzE3MTcxXCIsXG4gICAgICAgICAgICBiYWNrZ3JvdW5kOiBcInJhZGlhbC1ncmFkaWVudCgjNzE3MTcxLCAjNDE0MTQxKVwiLFxuICAgICAgICAgICAgaGVpZ2h0OiBcIjIwMHB4XCIsXG4gICAgICAgICAgICB3aWR0aDogXCIyMDBweFwiLFxuICAgICAgICAgICAgYm9yZGVyUmFkaXVzOiBcIjUwJVwiLFxuICAgICAgICAgICAgZGlzcGxheTogXCJmbGV4XCIsXG4gICAgICAgICAgICBqdXN0aWZ5Q29udGVudDogXCJjZW50ZXJcIixcbiAgICAgICAgICAgIHRyYW5zZm9ybTogXCJzY2FsZSgwLjIpIHRyYW5zbGF0ZVgoLTQ0OHB4KSB0cmFuc2xhdGVZKC00NDhweClcIixcbiAgICAgICAgICAgIC4uLnByb3BzLmJhY2tncm91bmRTdHlsZSxcbiAgICAgICAgICB9KX1cbiAgICAgICAgPlxuICAgICAgICAgIDxSb3RhdGVCdXR0b24gY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5yb3RhdGVSaWdodFN0eWxlIH0pfT5cbiAgICAgICAgICAgIDxSb3RhdGVSaWdodEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA+IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCAtIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyArIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVSaWdodEljb24+XG4gICAgICAgICAgPC9Sb3RhdGVCdXR0b24+XG4gICAgICAgICAgPE5lZWRsZUJ1dHRvblxuICAgICAgICAgICAgY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5uZWVkbGVTdHlsZSB9KX1cbiAgICAgICAgICAgIG9uQ2xpY2s9eygpID0+IHtcbiAgICAgICAgICAgICAgbWFwUmVmLmN1cnJlbnQ/LnNldEJlYXJpbmcoMCk7XG4gICAgICAgICAgICB9fVxuICAgICAgICAgID5cbiAgICAgICAgICAgIDxOZWVkbGVDb250YWluZXJcbiAgICAgICAgICAgICAgc3R5bGU9e3tcbiAgICAgICAgICAgICAgICB0cmFuc2Zvcm06IFwicm90YXRlKFwiICsgYmVhcmluZyArIFwiZGVnKVwiLFxuICAgICAgICAgICAgICB9fVxuICAgICAgICAgICAgPlxuICAgICAgICAgICAgICA8TmVlZGxlSWNvbiAvPlxuICAgICAgICAgICAgPC9OZWVkbGVDb250YWluZXI+XG4gICAgICAgICAgPC9OZWVkbGVCdXR0b24+XG4gICAgICAgICAgPFJvdGF0ZUJ1dHRvbiBjbGFzc05hbWU9e2Nzcyh7IC4uLnByb3BzLnJvdGF0ZUxlZnRTdHlsZSB9KX0+XG4gICAgICAgICAgICA8Um90YXRlTGVmdEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA8IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCArIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyAtIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVMZWZ0SWNvbj5cbiAgICAgICAgICA8L1JvdGF0ZUJ1dHRvbj5cbiAgICAgICAgPC9kaXY+XG4gICAgICA8L2Rpdj5cbiAgICA8Lz5cbiAgKTtcbn07XG5cbk1sTmF2aWdhdGlvbkNvbXBhc3MucHJvcFR5cGVzID0ge1xuICAvKipcbiAgICogQ29tcG9uZW50IGlkIHByZWZpeFxuICAgKi9cbiAgaWRQcmVmaXg6IFByb3BUeXBlcy5zdHJpbmcsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgY29tcG9uZW50LlxuICAgKi9cbiAgc3R5bGU6IFByb3BUeXBlcy5vYmplY3QsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgYmFja2dyb3VuZC5cbiAgICovXG4gIGJhY2tncm91bmRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbiAgLyoqXG4gICAqIFN0eWxlIG9iamVjdCB0byBhZGp1c3QgY3NzIGRlZmluaXRpb25zIG9mIHRoZSBjb21wYXNzIG5lZWRsZS5cbiAgICovXG4gIG5lZWRsZVN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSByaWdodCBidXR0b24uXG4gICAqL1xuICByb3RhdGVSaWdodFN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSBsZWZ0IGJ1dHRvbi5cbiAgICovXG4gIHJvdGF0ZUxlZnRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbn07XG5cbmV4cG9ydCBkZWZhdWx0IE1sTmF2aWdhdGlvbkNvbXBhc3M7XG4iXX0= */")
+  }, /*#__PURE__*/React__default.createElement(RotateButton, {
+    className: /*#__PURE__*/css(_objectSpread2({}, props.rotateRightStyle), process.env.NODE_ENV === "production" ? "" : ";label:MlNavigationCompass;", process.env.NODE_ENV === "production" ? "" : "/*# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbIk1sTmF2aWdhdGlvbkNvbXBhc3MuanMiXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBeUptQyIsImZpbGUiOiJNbE5hdmlnYXRpb25Db21wYXNzLmpzIiwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IFJlYWN0LCB7IHVzZVN0YXRlLCB1c2VSZWYsIHVzZUVmZmVjdCwgdXNlQ29udGV4dCB9IGZyb20gXCJyZWFjdFwiO1xuaW1wb3J0IFByb3BUeXBlcyBmcm9tIFwicHJvcC10eXBlc1wiO1xuXG5pbXBvcnQgeyBNYXBDb250ZXh0IH0gZnJvbSBcIkBtYXBjb21wb25lbnRzL3JlYWN0LWNvcmVcIjtcbmltcG9ydCB7IHY0IGFzIHV1aWR2NCB9IGZyb20gXCJ1dWlkXCI7XG5cbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIFJvdGF0ZVJpZ2h0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfcmlnaHQuc3ZnXCI7XG5pbXBvcnQgeyBSZWFjdENvbXBvbmVudCBhcyBSb3RhdGVMZWZ0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfbGVmdC5zdmdcIjtcbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIE5lZWRsZUljb24gfSBmcm9tIFwiLi9hc3NldHMvbmVlZGxlLnN2Z1wiO1xuXG5pbXBvcnQgc3R5bGVkIGZyb20gXCJAZW1vdGlvbi9zdHlsZWRcIjtcbmltcG9ydCB7IGNzcyB9IGZyb20gXCJAZW1vdGlvbi9jc3NcIjtcblxuY29uc3QgTmVlZGxlQnV0dG9uID0gc3R5bGVkLmRpdmBcbiAgd2lkdGg6IDQwJTtcbiAgZGlzcGxheTogZmxleDtcbiAgYWxpZ24taXRlbXM6IGNlbnRlcjtcblxuICAmOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgcGF0aCB7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDE1cHggcmdiYSgwLCAwLCAwLCAwLjIpKTtcbiAgfVxuICAmOmhvdmVyIHBhdGgge1xuICAgIGZpbHRlcjogZHJvcC1zaGFkb3coMHB4IDBweCAxM3B4IHJnYmEoMjU1LCAyNTUsIDI1NSwgMC4xKSk7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgyKSB7XG4gICAgZmlsbDogIzM0MzQzNDtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMikge1xuICAgIGZpbGw6ICM0MzQzNDM7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgxKSB7XG4gICAgZmlsbDogI2U5MDMxODtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMSkge1xuICAgIGZpbGw6ICNmYjQwNTI7XG4gIH1cbmA7XG5jb25zdCBOZWVkbGVDb250YWluZXIgPSBzdHlsZWQuZGl2YFxuICBwb2ludGVyLWV2ZW50czogbm9uZTtcbiAgZGlzcGxheTogZmxleDtcbiAgei1pbmRleDogMTAwMjtcbiAgcG9zaXRpb246IGFic29sdXRlO1xuICBhbGlnbi1pdGVtczogY2VudGVyO1xuXG4gIG1hcmdpbi1sZWZ0OiAtMzAlO1xuICBwYXRoOm50aC1vZi10eXBlKDIpIHtcbiAgfVxuICBzdmcgZyB7XG4gICAgdHJhbnNmb3JtOiB0cmFuc2xhdGUoLTc2LjcwNTMsIC0yOS43NzI3KSBzY2FsZSgyLCAxKTtcbiAgfVxuICBzdmcge1xuICAgIHotaW5kZXg6IDk5OTA7XG4gICAgaGVpZ2h0OiAxNTBweDtcbiAgICB3aWR0aDogMjAwcHg7XG4gIH1cbmA7XG5jb25zdCBSb3RhdGVCdXR0b24gPSBzdHlsZWQuZGl2YFxuICB3aWR0aDogMzAlO1xuICBtYXJnaW4tdG9wOiAxNHB4O1xuICB6LWluZGV4OiA5OTk7XG4gIGRpc3BsYXk6IGZsZXg7XG5cbiAgc3ZnOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgc3ZnOmhvdmVyIHBhdGgge1xuICAgIGZpbGw6ICNlY2VjZWM7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDVweCByZ2JhKDAsIDAsIDAsIDAuMSkpO1xuICB9XG4gIHBhdGgge1xuICAgIGZpbGw6ICNiYmI7XG4gIH1cbiAgc3ZnIHtcbiAgICB0cmFuc2Zvcm06IHNjYWxlKDAuNik7XG4gICAgei1pbmRleDogOTk5MDtcbiAgICBoZWlnaHQ6IDE3MnB4O1xuICB9XG5gO1xuXG4vKipcbiAqIE5hdmlnYXRpb24gY29tcG9uZW50IHRoYXQgZGlzcGxheXMgYSBjb21wYXNzIGNvbXBvbmVudCB3aGljaCBpbmRpY2F0ZXMgdGhlIGN1cnJlbnQgb3JpYW50YXRpb24gb2YgdGhlIG1hcCBpdCBpcyByZWdpc3RlcmVkIGZvciBhbmQgb2ZmZXJzIGNvbnRyb2xzIHRvIHR1cm4gdGhlIGJlYXJpbmcgOTDCsCBsZWZ0L3JpZ2h0IG9yIHJlc2V0IG5vcnRoIHRvIHBvaW50IHVwLlxuICpcbiAqIEFsbCBzdHlsZSBwcm9wcyBhcmUgYXBwbGllZCB1c2luZyBAZW1vdGlvbi9jc3MgdG8gYWxsb3cgbW9yZSBjb21wbGV4IGNzcyBzZWxlY3RvcnMuXG4gKlxuICogQGNvbXBvbmVudFxuICovXG5jb25zdCBNbE5hdmlnYXRpb25Db21wYXNzID0gKHByb3BzKSA9PiB7XG4gIC8vIFVzZSBhIHVzZVJlZiBob29rIHRvIHJlZmVyZW5jZSB0aGUgbGF5ZXIgb2JqZWN0IHRvIGJlIGFibGUgdG8gYWNjZXNzIGl0IGxhdGVyIGluc2lkZSB1c2VFZmZlY3QgaG9va3NcbiAgY29uc3QgbWFwQ29udGV4dCA9IHVzZUNvbnRleHQoTWFwQ29udGV4dCk7XG5cbiAgY29uc3QgaW5pdGlhbGl6ZWRSZWYgPSB1c2VSZWYoZmFsc2UpO1xuICBjb25zdCBtYXBSZWYgPSB1c2VSZWYodW5kZWZpbmVkKTtcbiAgY29uc3QgY29tcG9uZW50SWQgPSB1c2VSZWYoKHByb3BzLmlkUHJlZml4ID8gcHJvcHMuaWRQcmVmaXggOiBcIk1sTmF2aWdhdGlvbkNvbXBhc3MtXCIpICsgdXVpZHY0KCkpO1xuXG4gIGNvbnN0IFtiZWFyaW5nLCBzZXRCZWFyaW5nXSA9IHVzZVN0YXRlKDApO1xuXG4gIHVzZUVmZmVjdCgoKSA9PiB7XG4gICAgbGV0IF9jb21wb25lbnRJZCA9IGNvbXBvbmVudElkLmN1cnJlbnQ7XG5cbiAgICByZXR1cm4gKCkgPT4ge1xuICAgICAgLy8gVGhpcyBpcyB0aGUgY2xlYW51cCBmdW5jdGlvbiwgaXQgaXMgY2FsbGVkIHdoZW4gdGhpcyByZWFjdCBjb21wb25lbnQgaXMgcmVtb3ZlZCBmcm9tIHJlYWN0LWRvbVxuXG4gICAgICBpZiAobWFwUmVmLmN1cnJlbnQpIHtcbiAgICAgICAgbWFwUmVmLmN1cnJlbnQuY2xlYW51cChfY29tcG9uZW50SWQpO1xuICAgICAgICBtYXBSZWYuY3VycmVudCA9IHVuZGVmaW5lZDtcbiAgICAgIH1cbiAgICAgIGluaXRpYWxpemVkUmVmLmN1cnJlbnQgPSBmYWxzZTtcbiAgICB9O1xuICB9LCBbXSk7XG5cbiAgdXNlRWZmZWN0KCgpID0+IHtcbiAgICBpZiAoIW1hcENvbnRleHQubWFwRXhpc3RzKHByb3BzLm1hcElkKSB8fCBpbml0aWFsaXplZFJlZi5jdXJyZW50KSByZXR1cm47XG4gICAgaW5pdGlhbGl6ZWRSZWYuY3VycmVudCA9IHRydWU7XG4gICAgbWFwUmVmLmN1cnJlbnQgPSBtYXBDb250ZXh0LmdldE1hcChwcm9wcy5tYXBJZCk7XG5cbiAgICBtYXBSZWYuY3VycmVudC5vbihcbiAgICAgIFwicm90YXRlXCIsXG4gICAgICBmdW5jdGlvbiAoKSB7XG4gICAgICAgIHNldEJlYXJpbmcoTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudC5nZXRCZWFyaW5nKCkpKTtcbiAgICAgIH0sXG4gICAgICBjb21wb25lbnRJZC5jdXJyZW50XG4gICAgKTtcbiAgICBzZXRCZWFyaW5nKE1hdGgucm91bmQobWFwUmVmLmN1cnJlbnQuZ2V0QmVhcmluZygpKSk7XG4gIH0sIFttYXBDb250ZXh0Lm1hcElkcywgbWFwQ29udGV4dCwgcHJvcHMubWFwSWRdKTtcblxuICByZXR1cm4gKFxuICAgIDw+XG4gICAgICA8ZGl2XG4gICAgICAgIGNsYXNzTmFtZT17Y3NzKHtcbiAgICAgICAgICB6SW5kZXg6IDEwMDAsXG4gICAgICAgICAgdG9wOiAwLFxuICAgICAgICAgIHBvc2l0aW9uOiBcImFic29sdXRlXCIsXG4gICAgICAgICAgLi4ucHJvcHMuc3R5bGUsXG4gICAgICAgIH0pfVxuICAgICAgPlxuICAgICAgICA8ZGl2XG4gICAgICAgICAgY2xhc3NOYW1lPXtjc3Moe1xuICAgICAgICAgICAgcG9zaXRpb246IFwiYWJzb2x1dGVcIixcbiAgICAgICAgICAgIGJvcmRlcjogXCIxMHB4IHNvbGlkICNiY2JjYmNcIixcbiAgICAgICAgICAgIGJhY2tncm91bmRDb2xvcjogXCIjNzE3MTcxXCIsXG4gICAgICAgICAgICBiYWNrZ3JvdW5kOiBcInJhZGlhbC1ncmFkaWVudCgjNzE3MTcxLCAjNDE0MTQxKVwiLFxuICAgICAgICAgICAgaGVpZ2h0OiBcIjIwMHB4XCIsXG4gICAgICAgICAgICB3aWR0aDogXCIyMDBweFwiLFxuICAgICAgICAgICAgYm9yZGVyUmFkaXVzOiBcIjUwJVwiLFxuICAgICAgICAgICAgZGlzcGxheTogXCJmbGV4XCIsXG4gICAgICAgICAgICBqdXN0aWZ5Q29udGVudDogXCJjZW50ZXJcIixcbiAgICAgICAgICAgIHRyYW5zZm9ybTogXCJzY2FsZSgwLjIpIHRyYW5zbGF0ZVgoLTQ0OHB4KSB0cmFuc2xhdGVZKC00NDhweClcIixcbiAgICAgICAgICAgIC4uLnByb3BzLmJhY2tncm91bmRTdHlsZSxcbiAgICAgICAgICB9KX1cbiAgICAgICAgPlxuICAgICAgICAgIDxSb3RhdGVCdXR0b24gY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5yb3RhdGVSaWdodFN0eWxlIH0pfT5cbiAgICAgICAgICAgIDxSb3RhdGVSaWdodEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA+IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCAtIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyArIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVSaWdodEljb24+XG4gICAgICAgICAgPC9Sb3RhdGVCdXR0b24+XG4gICAgICAgICAgPE5lZWRsZUJ1dHRvblxuICAgICAgICAgICAgY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5uZWVkbGVTdHlsZSB9KX1cbiAgICAgICAgICAgIG9uQ2xpY2s9eygpID0+IHtcbiAgICAgICAgICAgICAgbWFwUmVmLmN1cnJlbnQ/LnNldEJlYXJpbmcoMCk7XG4gICAgICAgICAgICB9fVxuICAgICAgICAgID5cbiAgICAgICAgICAgIDxOZWVkbGVDb250YWluZXJcbiAgICAgICAgICAgICAgc3R5bGU9e3tcbiAgICAgICAgICAgICAgICB0cmFuc2Zvcm06IFwicm90YXRlKFwiICsgYmVhcmluZyArIFwiZGVnKVwiLFxuICAgICAgICAgICAgICB9fVxuICAgICAgICAgICAgPlxuICAgICAgICAgICAgICA8TmVlZGxlSWNvbiAvPlxuICAgICAgICAgICAgPC9OZWVkbGVDb250YWluZXI+XG4gICAgICAgICAgPC9OZWVkbGVCdXR0b24+XG4gICAgICAgICAgPFJvdGF0ZUJ1dHRvbiBjbGFzc05hbWU9e2Nzcyh7IC4uLnByb3BzLnJvdGF0ZUxlZnRTdHlsZSB9KX0+XG4gICAgICAgICAgICA8Um90YXRlTGVmdEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA8IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCArIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyAtIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVMZWZ0SWNvbj5cbiAgICAgICAgICA8L1JvdGF0ZUJ1dHRvbj5cbiAgICAgICAgPC9kaXY+XG4gICAgICA8L2Rpdj5cbiAgICA8Lz5cbiAgKTtcbn07XG5cbk1sTmF2aWdhdGlvbkNvbXBhc3MucHJvcFR5cGVzID0ge1xuICAvKipcbiAgICogQ29tcG9uZW50IGlkIHByZWZpeFxuICAgKi9cbiAgaWRQcmVmaXg6IFByb3BUeXBlcy5zdHJpbmcsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgY29tcG9uZW50LlxuICAgKi9cbiAgc3R5bGU6IFByb3BUeXBlcy5vYmplY3QsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgYmFja2dyb3VuZC5cbiAgICovXG4gIGJhY2tncm91bmRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbiAgLyoqXG4gICAqIFN0eWxlIG9iamVjdCB0byBhZGp1c3QgY3NzIGRlZmluaXRpb25zIG9mIHRoZSBjb21wYXNzIG5lZWRsZS5cbiAgICovXG4gIG5lZWRsZVN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSByaWdodCBidXR0b24uXG4gICAqL1xuICByb3RhdGVSaWdodFN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSBsZWZ0IGJ1dHRvbi5cbiAgICovXG4gIHJvdGF0ZUxlZnRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbn07XG5cbmV4cG9ydCBkZWZhdWx0IE1sTmF2aWdhdGlvbkNvbXBhc3M7XG4iXX0= */")
+  }, /*#__PURE__*/React__default.createElement(SvgRotateRight, {
+    onClick: function onClick() {
+      var _mapRef$current, _mapRef$current2;
+
+      var bearing = Math.round((_mapRef$current = mapRef.current) === null || _mapRef$current === void 0 ? void 0 : _mapRef$current.getBearing());
+      var rest = Math.round(bearing % 90);
+
+      if (bearing > 0) {
+        rest = 90 - rest;
+      }
+
+      if (rest === 0) {
+        rest = 90;
+      }
+
+      (_mapRef$current2 = mapRef.current) === null || _mapRef$current2 === void 0 ? void 0 : _mapRef$current2.setBearing(Math.round(bearing + Math.abs(rest)));
+    }
+  })), /*#__PURE__*/React__default.createElement(NeedleButton, {
+    className: /*#__PURE__*/css(_objectSpread2({}, props.needleStyle), process.env.NODE_ENV === "production" ? "" : ";label:MlNavigationCompass;", process.env.NODE_ENV === "production" ? "" : "/*# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbIk1sTmF2aWdhdGlvbkNvbXBhc3MuanMiXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBeUt1QiIsImZpbGUiOiJNbE5hdmlnYXRpb25Db21wYXNzLmpzIiwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IFJlYWN0LCB7IHVzZVN0YXRlLCB1c2VSZWYsIHVzZUVmZmVjdCwgdXNlQ29udGV4dCB9IGZyb20gXCJyZWFjdFwiO1xuaW1wb3J0IFByb3BUeXBlcyBmcm9tIFwicHJvcC10eXBlc1wiO1xuXG5pbXBvcnQgeyBNYXBDb250ZXh0IH0gZnJvbSBcIkBtYXBjb21wb25lbnRzL3JlYWN0LWNvcmVcIjtcbmltcG9ydCB7IHY0IGFzIHV1aWR2NCB9IGZyb20gXCJ1dWlkXCI7XG5cbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIFJvdGF0ZVJpZ2h0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfcmlnaHQuc3ZnXCI7XG5pbXBvcnQgeyBSZWFjdENvbXBvbmVudCBhcyBSb3RhdGVMZWZ0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfbGVmdC5zdmdcIjtcbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIE5lZWRsZUljb24gfSBmcm9tIFwiLi9hc3NldHMvbmVlZGxlLnN2Z1wiO1xuXG5pbXBvcnQgc3R5bGVkIGZyb20gXCJAZW1vdGlvbi9zdHlsZWRcIjtcbmltcG9ydCB7IGNzcyB9IGZyb20gXCJAZW1vdGlvbi9jc3NcIjtcblxuY29uc3QgTmVlZGxlQnV0dG9uID0gc3R5bGVkLmRpdmBcbiAgd2lkdGg6IDQwJTtcbiAgZGlzcGxheTogZmxleDtcbiAgYWxpZ24taXRlbXM6IGNlbnRlcjtcblxuICAmOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgcGF0aCB7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDE1cHggcmdiYSgwLCAwLCAwLCAwLjIpKTtcbiAgfVxuICAmOmhvdmVyIHBhdGgge1xuICAgIGZpbHRlcjogZHJvcC1zaGFkb3coMHB4IDBweCAxM3B4IHJnYmEoMjU1LCAyNTUsIDI1NSwgMC4xKSk7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgyKSB7XG4gICAgZmlsbDogIzM0MzQzNDtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMikge1xuICAgIGZpbGw6ICM0MzQzNDM7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgxKSB7XG4gICAgZmlsbDogI2U5MDMxODtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMSkge1xuICAgIGZpbGw6ICNmYjQwNTI7XG4gIH1cbmA7XG5jb25zdCBOZWVkbGVDb250YWluZXIgPSBzdHlsZWQuZGl2YFxuICBwb2ludGVyLWV2ZW50czogbm9uZTtcbiAgZGlzcGxheTogZmxleDtcbiAgei1pbmRleDogMTAwMjtcbiAgcG9zaXRpb246IGFic29sdXRlO1xuICBhbGlnbi1pdGVtczogY2VudGVyO1xuXG4gIG1hcmdpbi1sZWZ0OiAtMzAlO1xuICBwYXRoOm50aC1vZi10eXBlKDIpIHtcbiAgfVxuICBzdmcgZyB7XG4gICAgdHJhbnNmb3JtOiB0cmFuc2xhdGUoLTc2LjcwNTMsIC0yOS43NzI3KSBzY2FsZSgyLCAxKTtcbiAgfVxuICBzdmcge1xuICAgIHotaW5kZXg6IDk5OTA7XG4gICAgaGVpZ2h0OiAxNTBweDtcbiAgICB3aWR0aDogMjAwcHg7XG4gIH1cbmA7XG5jb25zdCBSb3RhdGVCdXR0b24gPSBzdHlsZWQuZGl2YFxuICB3aWR0aDogMzAlO1xuICBtYXJnaW4tdG9wOiAxNHB4O1xuICB6LWluZGV4OiA5OTk7XG4gIGRpc3BsYXk6IGZsZXg7XG5cbiAgc3ZnOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgc3ZnOmhvdmVyIHBhdGgge1xuICAgIGZpbGw6ICNlY2VjZWM7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDVweCByZ2JhKDAsIDAsIDAsIDAuMSkpO1xuICB9XG4gIHBhdGgge1xuICAgIGZpbGw6ICNiYmI7XG4gIH1cbiAgc3ZnIHtcbiAgICB0cmFuc2Zvcm06IHNjYWxlKDAuNik7XG4gICAgei1pbmRleDogOTk5MDtcbiAgICBoZWlnaHQ6IDE3MnB4O1xuICB9XG5gO1xuXG4vKipcbiAqIE5hdmlnYXRpb24gY29tcG9uZW50IHRoYXQgZGlzcGxheXMgYSBjb21wYXNzIGNvbXBvbmVudCB3aGljaCBpbmRpY2F0ZXMgdGhlIGN1cnJlbnQgb3JpYW50YXRpb24gb2YgdGhlIG1hcCBpdCBpcyByZWdpc3RlcmVkIGZvciBhbmQgb2ZmZXJzIGNvbnRyb2xzIHRvIHR1cm4gdGhlIGJlYXJpbmcgOTDCsCBsZWZ0L3JpZ2h0IG9yIHJlc2V0IG5vcnRoIHRvIHBvaW50IHVwLlxuICpcbiAqIEFsbCBzdHlsZSBwcm9wcyBhcmUgYXBwbGllZCB1c2luZyBAZW1vdGlvbi9jc3MgdG8gYWxsb3cgbW9yZSBjb21wbGV4IGNzcyBzZWxlY3RvcnMuXG4gKlxuICogQGNvbXBvbmVudFxuICovXG5jb25zdCBNbE5hdmlnYXRpb25Db21wYXNzID0gKHByb3BzKSA9PiB7XG4gIC8vIFVzZSBhIHVzZVJlZiBob29rIHRvIHJlZmVyZW5jZSB0aGUgbGF5ZXIgb2JqZWN0IHRvIGJlIGFibGUgdG8gYWNjZXNzIGl0IGxhdGVyIGluc2lkZSB1c2VFZmZlY3QgaG9va3NcbiAgY29uc3QgbWFwQ29udGV4dCA9IHVzZUNvbnRleHQoTWFwQ29udGV4dCk7XG5cbiAgY29uc3QgaW5pdGlhbGl6ZWRSZWYgPSB1c2VSZWYoZmFsc2UpO1xuICBjb25zdCBtYXBSZWYgPSB1c2VSZWYodW5kZWZpbmVkKTtcbiAgY29uc3QgY29tcG9uZW50SWQgPSB1c2VSZWYoKHByb3BzLmlkUHJlZml4ID8gcHJvcHMuaWRQcmVmaXggOiBcIk1sTmF2aWdhdGlvbkNvbXBhc3MtXCIpICsgdXVpZHY0KCkpO1xuXG4gIGNvbnN0IFtiZWFyaW5nLCBzZXRCZWFyaW5nXSA9IHVzZVN0YXRlKDApO1xuXG4gIHVzZUVmZmVjdCgoKSA9PiB7XG4gICAgbGV0IF9jb21wb25lbnRJZCA9IGNvbXBvbmVudElkLmN1cnJlbnQ7XG5cbiAgICByZXR1cm4gKCkgPT4ge1xuICAgICAgLy8gVGhpcyBpcyB0aGUgY2xlYW51cCBmdW5jdGlvbiwgaXQgaXMgY2FsbGVkIHdoZW4gdGhpcyByZWFjdCBjb21wb25lbnQgaXMgcmVtb3ZlZCBmcm9tIHJlYWN0LWRvbVxuXG4gICAgICBpZiAobWFwUmVmLmN1cnJlbnQpIHtcbiAgICAgICAgbWFwUmVmLmN1cnJlbnQuY2xlYW51cChfY29tcG9uZW50SWQpO1xuICAgICAgICBtYXBSZWYuY3VycmVudCA9IHVuZGVmaW5lZDtcbiAgICAgIH1cbiAgICAgIGluaXRpYWxpemVkUmVmLmN1cnJlbnQgPSBmYWxzZTtcbiAgICB9O1xuICB9LCBbXSk7XG5cbiAgdXNlRWZmZWN0KCgpID0+IHtcbiAgICBpZiAoIW1hcENvbnRleHQubWFwRXhpc3RzKHByb3BzLm1hcElkKSB8fCBpbml0aWFsaXplZFJlZi5jdXJyZW50KSByZXR1cm47XG4gICAgaW5pdGlhbGl6ZWRSZWYuY3VycmVudCA9IHRydWU7XG4gICAgbWFwUmVmLmN1cnJlbnQgPSBtYXBDb250ZXh0LmdldE1hcChwcm9wcy5tYXBJZCk7XG5cbiAgICBtYXBSZWYuY3VycmVudC5vbihcbiAgICAgIFwicm90YXRlXCIsXG4gICAgICBmdW5jdGlvbiAoKSB7XG4gICAgICAgIHNldEJlYXJpbmcoTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudC5nZXRCZWFyaW5nKCkpKTtcbiAgICAgIH0sXG4gICAgICBjb21wb25lbnRJZC5jdXJyZW50XG4gICAgKTtcbiAgICBzZXRCZWFyaW5nKE1hdGgucm91bmQobWFwUmVmLmN1cnJlbnQuZ2V0QmVhcmluZygpKSk7XG4gIH0sIFttYXBDb250ZXh0Lm1hcElkcywgbWFwQ29udGV4dCwgcHJvcHMubWFwSWRdKTtcblxuICByZXR1cm4gKFxuICAgIDw+XG4gICAgICA8ZGl2XG4gICAgICAgIGNsYXNzTmFtZT17Y3NzKHtcbiAgICAgICAgICB6SW5kZXg6IDEwMDAsXG4gICAgICAgICAgdG9wOiAwLFxuICAgICAgICAgIHBvc2l0aW9uOiBcImFic29sdXRlXCIsXG4gICAgICAgICAgLi4ucHJvcHMuc3R5bGUsXG4gICAgICAgIH0pfVxuICAgICAgPlxuICAgICAgICA8ZGl2XG4gICAgICAgICAgY2xhc3NOYW1lPXtjc3Moe1xuICAgICAgICAgICAgcG9zaXRpb246IFwiYWJzb2x1dGVcIixcbiAgICAgICAgICAgIGJvcmRlcjogXCIxMHB4IHNvbGlkICNiY2JjYmNcIixcbiAgICAgICAgICAgIGJhY2tncm91bmRDb2xvcjogXCIjNzE3MTcxXCIsXG4gICAgICAgICAgICBiYWNrZ3JvdW5kOiBcInJhZGlhbC1ncmFkaWVudCgjNzE3MTcxLCAjNDE0MTQxKVwiLFxuICAgICAgICAgICAgaGVpZ2h0OiBcIjIwMHB4XCIsXG4gICAgICAgICAgICB3aWR0aDogXCIyMDBweFwiLFxuICAgICAgICAgICAgYm9yZGVyUmFkaXVzOiBcIjUwJVwiLFxuICAgICAgICAgICAgZGlzcGxheTogXCJmbGV4XCIsXG4gICAgICAgICAgICBqdXN0aWZ5Q29udGVudDogXCJjZW50ZXJcIixcbiAgICAgICAgICAgIHRyYW5zZm9ybTogXCJzY2FsZSgwLjIpIHRyYW5zbGF0ZVgoLTQ0OHB4KSB0cmFuc2xhdGVZKC00NDhweClcIixcbiAgICAgICAgICAgIC4uLnByb3BzLmJhY2tncm91bmRTdHlsZSxcbiAgICAgICAgICB9KX1cbiAgICAgICAgPlxuICAgICAgICAgIDxSb3RhdGVCdXR0b24gY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5yb3RhdGVSaWdodFN0eWxlIH0pfT5cbiAgICAgICAgICAgIDxSb3RhdGVSaWdodEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA+IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCAtIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyArIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVSaWdodEljb24+XG4gICAgICAgICAgPC9Sb3RhdGVCdXR0b24+XG4gICAgICAgICAgPE5lZWRsZUJ1dHRvblxuICAgICAgICAgICAgY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5uZWVkbGVTdHlsZSB9KX1cbiAgICAgICAgICAgIG9uQ2xpY2s9eygpID0+IHtcbiAgICAgICAgICAgICAgbWFwUmVmLmN1cnJlbnQ/LnNldEJlYXJpbmcoMCk7XG4gICAgICAgICAgICB9fVxuICAgICAgICAgID5cbiAgICAgICAgICAgIDxOZWVkbGVDb250YWluZXJcbiAgICAgICAgICAgICAgc3R5bGU9e3tcbiAgICAgICAgICAgICAgICB0cmFuc2Zvcm06IFwicm90YXRlKFwiICsgYmVhcmluZyArIFwiZGVnKVwiLFxuICAgICAgICAgICAgICB9fVxuICAgICAgICAgICAgPlxuICAgICAgICAgICAgICA8TmVlZGxlSWNvbiAvPlxuICAgICAgICAgICAgPC9OZWVkbGVDb250YWluZXI+XG4gICAgICAgICAgPC9OZWVkbGVCdXR0b24+XG4gICAgICAgICAgPFJvdGF0ZUJ1dHRvbiBjbGFzc05hbWU9e2Nzcyh7IC4uLnByb3BzLnJvdGF0ZUxlZnRTdHlsZSB9KX0+XG4gICAgICAgICAgICA8Um90YXRlTGVmdEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA8IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCArIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyAtIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVMZWZ0SWNvbj5cbiAgICAgICAgICA8L1JvdGF0ZUJ1dHRvbj5cbiAgICAgICAgPC9kaXY+XG4gICAgICA8L2Rpdj5cbiAgICA8Lz5cbiAgKTtcbn07XG5cbk1sTmF2aWdhdGlvbkNvbXBhc3MucHJvcFR5cGVzID0ge1xuICAvKipcbiAgICogQ29tcG9uZW50IGlkIHByZWZpeFxuICAgKi9cbiAgaWRQcmVmaXg6IFByb3BUeXBlcy5zdHJpbmcsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgY29tcG9uZW50LlxuICAgKi9cbiAgc3R5bGU6IFByb3BUeXBlcy5vYmplY3QsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgYmFja2dyb3VuZC5cbiAgICovXG4gIGJhY2tncm91bmRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbiAgLyoqXG4gICAqIFN0eWxlIG9iamVjdCB0byBhZGp1c3QgY3NzIGRlZmluaXRpb25zIG9mIHRoZSBjb21wYXNzIG5lZWRsZS5cbiAgICovXG4gIG5lZWRsZVN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSByaWdodCBidXR0b24uXG4gICAqL1xuICByb3RhdGVSaWdodFN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSBsZWZ0IGJ1dHRvbi5cbiAgICovXG4gIHJvdGF0ZUxlZnRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbn07XG5cbmV4cG9ydCBkZWZhdWx0IE1sTmF2aWdhdGlvbkNvbXBhc3M7XG4iXX0= */"),
+    onClick: function onClick() {
+      var _mapRef$current3;
+
+      (_mapRef$current3 = mapRef.current) === null || _mapRef$current3 === void 0 ? void 0 : _mapRef$current3.setBearing(0);
+    }
+  }, /*#__PURE__*/React__default.createElement(NeedleContainer, {
+    style: {
+      transform: "rotate(" + bearing + "deg)"
+    }
+  }, /*#__PURE__*/React__default.createElement(SvgNeedle, null))), /*#__PURE__*/React__default.createElement(RotateButton, {
+    className: /*#__PURE__*/css(_objectSpread2({}, props.rotateLeftStyle), process.env.NODE_ENV === "production" ? "" : ";label:MlNavigationCompass;", process.env.NODE_ENV === "production" ? "" : "/*# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbIk1sTmF2aWdhdGlvbkNvbXBhc3MuanMiXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBc0xtQyIsImZpbGUiOiJNbE5hdmlnYXRpb25Db21wYXNzLmpzIiwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IFJlYWN0LCB7IHVzZVN0YXRlLCB1c2VSZWYsIHVzZUVmZmVjdCwgdXNlQ29udGV4dCB9IGZyb20gXCJyZWFjdFwiO1xuaW1wb3J0IFByb3BUeXBlcyBmcm9tIFwicHJvcC10eXBlc1wiO1xuXG5pbXBvcnQgeyBNYXBDb250ZXh0IH0gZnJvbSBcIkBtYXBjb21wb25lbnRzL3JlYWN0LWNvcmVcIjtcbmltcG9ydCB7IHY0IGFzIHV1aWR2NCB9IGZyb20gXCJ1dWlkXCI7XG5cbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIFJvdGF0ZVJpZ2h0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfcmlnaHQuc3ZnXCI7XG5pbXBvcnQgeyBSZWFjdENvbXBvbmVudCBhcyBSb3RhdGVMZWZ0SWNvbiB9IGZyb20gXCIuL2Fzc2V0cy9yb3RhdGVfbGVmdC5zdmdcIjtcbmltcG9ydCB7IFJlYWN0Q29tcG9uZW50IGFzIE5lZWRsZUljb24gfSBmcm9tIFwiLi9hc3NldHMvbmVlZGxlLnN2Z1wiO1xuXG5pbXBvcnQgc3R5bGVkIGZyb20gXCJAZW1vdGlvbi9zdHlsZWRcIjtcbmltcG9ydCB7IGNzcyB9IGZyb20gXCJAZW1vdGlvbi9jc3NcIjtcblxuY29uc3QgTmVlZGxlQnV0dG9uID0gc3R5bGVkLmRpdmBcbiAgd2lkdGg6IDQwJTtcbiAgZGlzcGxheTogZmxleDtcbiAgYWxpZ24taXRlbXM6IGNlbnRlcjtcblxuICAmOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgcGF0aCB7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDE1cHggcmdiYSgwLCAwLCAwLCAwLjIpKTtcbiAgfVxuICAmOmhvdmVyIHBhdGgge1xuICAgIGZpbHRlcjogZHJvcC1zaGFkb3coMHB4IDBweCAxM3B4IHJnYmEoMjU1LCAyNTUsIDI1NSwgMC4xKSk7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgyKSB7XG4gICAgZmlsbDogIzM0MzQzNDtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMikge1xuICAgIGZpbGw6ICM0MzQzNDM7XG4gIH1cbiAgcGF0aDpudGgtb2YtdHlwZSgxKSB7XG4gICAgZmlsbDogI2U5MDMxODtcbiAgfVxuICAmOmhvdmVyIHBhdGg6bnRoLW9mLXR5cGUoMSkge1xuICAgIGZpbGw6ICNmYjQwNTI7XG4gIH1cbmA7XG5jb25zdCBOZWVkbGVDb250YWluZXIgPSBzdHlsZWQuZGl2YFxuICBwb2ludGVyLWV2ZW50czogbm9uZTtcbiAgZGlzcGxheTogZmxleDtcbiAgei1pbmRleDogMTAwMjtcbiAgcG9zaXRpb246IGFic29sdXRlO1xuICBhbGlnbi1pdGVtczogY2VudGVyO1xuXG4gIG1hcmdpbi1sZWZ0OiAtMzAlO1xuICBwYXRoOm50aC1vZi10eXBlKDIpIHtcbiAgfVxuICBzdmcgZyB7XG4gICAgdHJhbnNmb3JtOiB0cmFuc2xhdGUoLTc2LjcwNTMsIC0yOS43NzI3KSBzY2FsZSgyLCAxKTtcbiAgfVxuICBzdmcge1xuICAgIHotaW5kZXg6IDk5OTA7XG4gICAgaGVpZ2h0OiAxNTBweDtcbiAgICB3aWR0aDogMjAwcHg7XG4gIH1cbmA7XG5jb25zdCBSb3RhdGVCdXR0b24gPSBzdHlsZWQuZGl2YFxuICB3aWR0aDogMzAlO1xuICBtYXJnaW4tdG9wOiAxNHB4O1xuICB6LWluZGV4OiA5OTk7XG4gIGRpc3BsYXk6IGZsZXg7XG5cbiAgc3ZnOmhvdmVyIHtcbiAgICBjdXJzb3I6IHBvaW50ZXI7XG4gIH1cbiAgc3ZnOmhvdmVyIHBhdGgge1xuICAgIGZpbGw6ICNlY2VjZWM7XG4gICAgZmlsdGVyOiBkcm9wLXNoYWRvdygwcHggMHB4IDVweCByZ2JhKDAsIDAsIDAsIDAuMSkpO1xuICB9XG4gIHBhdGgge1xuICAgIGZpbGw6ICNiYmI7XG4gIH1cbiAgc3ZnIHtcbiAgICB0cmFuc2Zvcm06IHNjYWxlKDAuNik7XG4gICAgei1pbmRleDogOTk5MDtcbiAgICBoZWlnaHQ6IDE3MnB4O1xuICB9XG5gO1xuXG4vKipcbiAqIE5hdmlnYXRpb24gY29tcG9uZW50IHRoYXQgZGlzcGxheXMgYSBjb21wYXNzIGNvbXBvbmVudCB3aGljaCBpbmRpY2F0ZXMgdGhlIGN1cnJlbnQgb3JpYW50YXRpb24gb2YgdGhlIG1hcCBpdCBpcyByZWdpc3RlcmVkIGZvciBhbmQgb2ZmZXJzIGNvbnRyb2xzIHRvIHR1cm4gdGhlIGJlYXJpbmcgOTDCsCBsZWZ0L3JpZ2h0IG9yIHJlc2V0IG5vcnRoIHRvIHBvaW50IHVwLlxuICpcbiAqIEFsbCBzdHlsZSBwcm9wcyBhcmUgYXBwbGllZCB1c2luZyBAZW1vdGlvbi9jc3MgdG8gYWxsb3cgbW9yZSBjb21wbGV4IGNzcyBzZWxlY3RvcnMuXG4gKlxuICogQGNvbXBvbmVudFxuICovXG5jb25zdCBNbE5hdmlnYXRpb25Db21wYXNzID0gKHByb3BzKSA9PiB7XG4gIC8vIFVzZSBhIHVzZVJlZiBob29rIHRvIHJlZmVyZW5jZSB0aGUgbGF5ZXIgb2JqZWN0IHRvIGJlIGFibGUgdG8gYWNjZXNzIGl0IGxhdGVyIGluc2lkZSB1c2VFZmZlY3QgaG9va3NcbiAgY29uc3QgbWFwQ29udGV4dCA9IHVzZUNvbnRleHQoTWFwQ29udGV4dCk7XG5cbiAgY29uc3QgaW5pdGlhbGl6ZWRSZWYgPSB1c2VSZWYoZmFsc2UpO1xuICBjb25zdCBtYXBSZWYgPSB1c2VSZWYodW5kZWZpbmVkKTtcbiAgY29uc3QgY29tcG9uZW50SWQgPSB1c2VSZWYoKHByb3BzLmlkUHJlZml4ID8gcHJvcHMuaWRQcmVmaXggOiBcIk1sTmF2aWdhdGlvbkNvbXBhc3MtXCIpICsgdXVpZHY0KCkpO1xuXG4gIGNvbnN0IFtiZWFyaW5nLCBzZXRCZWFyaW5nXSA9IHVzZVN0YXRlKDApO1xuXG4gIHVzZUVmZmVjdCgoKSA9PiB7XG4gICAgbGV0IF9jb21wb25lbnRJZCA9IGNvbXBvbmVudElkLmN1cnJlbnQ7XG5cbiAgICByZXR1cm4gKCkgPT4ge1xuICAgICAgLy8gVGhpcyBpcyB0aGUgY2xlYW51cCBmdW5jdGlvbiwgaXQgaXMgY2FsbGVkIHdoZW4gdGhpcyByZWFjdCBjb21wb25lbnQgaXMgcmVtb3ZlZCBmcm9tIHJlYWN0LWRvbVxuXG4gICAgICBpZiAobWFwUmVmLmN1cnJlbnQpIHtcbiAgICAgICAgbWFwUmVmLmN1cnJlbnQuY2xlYW51cChfY29tcG9uZW50SWQpO1xuICAgICAgICBtYXBSZWYuY3VycmVudCA9IHVuZGVmaW5lZDtcbiAgICAgIH1cbiAgICAgIGluaXRpYWxpemVkUmVmLmN1cnJlbnQgPSBmYWxzZTtcbiAgICB9O1xuICB9LCBbXSk7XG5cbiAgdXNlRWZmZWN0KCgpID0+IHtcbiAgICBpZiAoIW1hcENvbnRleHQubWFwRXhpc3RzKHByb3BzLm1hcElkKSB8fCBpbml0aWFsaXplZFJlZi5jdXJyZW50KSByZXR1cm47XG4gICAgaW5pdGlhbGl6ZWRSZWYuY3VycmVudCA9IHRydWU7XG4gICAgbWFwUmVmLmN1cnJlbnQgPSBtYXBDb250ZXh0LmdldE1hcChwcm9wcy5tYXBJZCk7XG5cbiAgICBtYXBSZWYuY3VycmVudC5vbihcbiAgICAgIFwicm90YXRlXCIsXG4gICAgICBmdW5jdGlvbiAoKSB7XG4gICAgICAgIHNldEJlYXJpbmcoTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudC5nZXRCZWFyaW5nKCkpKTtcbiAgICAgIH0sXG4gICAgICBjb21wb25lbnRJZC5jdXJyZW50XG4gICAgKTtcbiAgICBzZXRCZWFyaW5nKE1hdGgucm91bmQobWFwUmVmLmN1cnJlbnQuZ2V0QmVhcmluZygpKSk7XG4gIH0sIFttYXBDb250ZXh0Lm1hcElkcywgbWFwQ29udGV4dCwgcHJvcHMubWFwSWRdKTtcblxuICByZXR1cm4gKFxuICAgIDw+XG4gICAgICA8ZGl2XG4gICAgICAgIGNsYXNzTmFtZT17Y3NzKHtcbiAgICAgICAgICB6SW5kZXg6IDEwMDAsXG4gICAgICAgICAgdG9wOiAwLFxuICAgICAgICAgIHBvc2l0aW9uOiBcImFic29sdXRlXCIsXG4gICAgICAgICAgLi4ucHJvcHMuc3R5bGUsXG4gICAgICAgIH0pfVxuICAgICAgPlxuICAgICAgICA8ZGl2XG4gICAgICAgICAgY2xhc3NOYW1lPXtjc3Moe1xuICAgICAgICAgICAgcG9zaXRpb246IFwiYWJzb2x1dGVcIixcbiAgICAgICAgICAgIGJvcmRlcjogXCIxMHB4IHNvbGlkICNiY2JjYmNcIixcbiAgICAgICAgICAgIGJhY2tncm91bmRDb2xvcjogXCIjNzE3MTcxXCIsXG4gICAgICAgICAgICBiYWNrZ3JvdW5kOiBcInJhZGlhbC1ncmFkaWVudCgjNzE3MTcxLCAjNDE0MTQxKVwiLFxuICAgICAgICAgICAgaGVpZ2h0OiBcIjIwMHB4XCIsXG4gICAgICAgICAgICB3aWR0aDogXCIyMDBweFwiLFxuICAgICAgICAgICAgYm9yZGVyUmFkaXVzOiBcIjUwJVwiLFxuICAgICAgICAgICAgZGlzcGxheTogXCJmbGV4XCIsXG4gICAgICAgICAgICBqdXN0aWZ5Q29udGVudDogXCJjZW50ZXJcIixcbiAgICAgICAgICAgIHRyYW5zZm9ybTogXCJzY2FsZSgwLjIpIHRyYW5zbGF0ZVgoLTQ0OHB4KSB0cmFuc2xhdGVZKC00NDhweClcIixcbiAgICAgICAgICAgIC4uLnByb3BzLmJhY2tncm91bmRTdHlsZSxcbiAgICAgICAgICB9KX1cbiAgICAgICAgPlxuICAgICAgICAgIDxSb3RhdGVCdXR0b24gY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5yb3RhdGVSaWdodFN0eWxlIH0pfT5cbiAgICAgICAgICAgIDxSb3RhdGVSaWdodEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA+IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCAtIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyArIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVSaWdodEljb24+XG4gICAgICAgICAgPC9Sb3RhdGVCdXR0b24+XG4gICAgICAgICAgPE5lZWRsZUJ1dHRvblxuICAgICAgICAgICAgY2xhc3NOYW1lPXtjc3MoeyAuLi5wcm9wcy5uZWVkbGVTdHlsZSB9KX1cbiAgICAgICAgICAgIG9uQ2xpY2s9eygpID0+IHtcbiAgICAgICAgICAgICAgbWFwUmVmLmN1cnJlbnQ/LnNldEJlYXJpbmcoMCk7XG4gICAgICAgICAgICB9fVxuICAgICAgICAgID5cbiAgICAgICAgICAgIDxOZWVkbGVDb250YWluZXJcbiAgICAgICAgICAgICAgc3R5bGU9e3tcbiAgICAgICAgICAgICAgICB0cmFuc2Zvcm06IFwicm90YXRlKFwiICsgYmVhcmluZyArIFwiZGVnKVwiLFxuICAgICAgICAgICAgICB9fVxuICAgICAgICAgICAgPlxuICAgICAgICAgICAgICA8TmVlZGxlSWNvbiAvPlxuICAgICAgICAgICAgPC9OZWVkbGVDb250YWluZXI+XG4gICAgICAgICAgPC9OZWVkbGVCdXR0b24+XG4gICAgICAgICAgPFJvdGF0ZUJ1dHRvbiBjbGFzc05hbWU9e2Nzcyh7IC4uLnByb3BzLnJvdGF0ZUxlZnRTdHlsZSB9KX0+XG4gICAgICAgICAgICA8Um90YXRlTGVmdEljb25cbiAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4ge1xuICAgICAgICAgICAgICAgIGxldCBiZWFyaW5nID0gTWF0aC5yb3VuZChtYXBSZWYuY3VycmVudD8uZ2V0QmVhcmluZygpKTtcbiAgICAgICAgICAgICAgICBsZXQgcmVzdCA9IE1hdGgucm91bmQoYmVhcmluZyAlIDkwKTtcbiAgICAgICAgICAgICAgICBpZiAoYmVhcmluZyA8IDApIHtcbiAgICAgICAgICAgICAgICAgIHJlc3QgPSA5MCArIHJlc3Q7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGlmIChyZXN0ID09PSAwKSB7XG4gICAgICAgICAgICAgICAgICByZXN0ID0gOTA7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIG1hcFJlZi5jdXJyZW50Py5zZXRCZWFyaW5nKE1hdGgucm91bmQoYmVhcmluZyAtIE1hdGguYWJzKHJlc3QpKSk7XG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+PC9Sb3RhdGVMZWZ0SWNvbj5cbiAgICAgICAgICA8L1JvdGF0ZUJ1dHRvbj5cbiAgICAgICAgPC9kaXY+XG4gICAgICA8L2Rpdj5cbiAgICA8Lz5cbiAgKTtcbn07XG5cbk1sTmF2aWdhdGlvbkNvbXBhc3MucHJvcFR5cGVzID0ge1xuICAvKipcbiAgICogQ29tcG9uZW50IGlkIHByZWZpeFxuICAgKi9cbiAgaWRQcmVmaXg6IFByb3BUeXBlcy5zdHJpbmcsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgY29tcG9uZW50LlxuICAgKi9cbiAgc3R5bGU6IFByb3BUeXBlcy5vYmplY3QsXG4gIC8qKlxuICAgKiBTdHlsZSBvYmplY3QgdG8gYWRqdXN0IGNzcyBkZWZpbml0aW9ucyBvZiB0aGUgYmFja2dyb3VuZC5cbiAgICovXG4gIGJhY2tncm91bmRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbiAgLyoqXG4gICAqIFN0eWxlIG9iamVjdCB0byBhZGp1c3QgY3NzIGRlZmluaXRpb25zIG9mIHRoZSBjb21wYXNzIG5lZWRsZS5cbiAgICovXG4gIG5lZWRsZVN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSByaWdodCBidXR0b24uXG4gICAqL1xuICByb3RhdGVSaWdodFN0eWxlOiBQcm9wVHlwZXMub2JqZWN0LFxuICAvKipcbiAgICogU3R5bGUgb2JqZWN0IHRvIGFkanVzdCBjc3MgZGVmaW5pdGlvbnMgb2YgdGhlIHJvdGF0ZSBsZWZ0IGJ1dHRvbi5cbiAgICovXG4gIHJvdGF0ZUxlZnRTdHlsZTogUHJvcFR5cGVzLm9iamVjdCxcbn07XG5cbmV4cG9ydCBkZWZhdWx0IE1sTmF2aWdhdGlvbkNvbXBhc3M7XG4iXX0= */")
+  }, /*#__PURE__*/React__default.createElement(SvgRotateLeft, {
+    onClick: function onClick() {
+      var _mapRef$current4, _mapRef$current5;
+
+      var bearing = Math.round((_mapRef$current4 = mapRef.current) === null || _mapRef$current4 === void 0 ? void 0 : _mapRef$current4.getBearing());
+      var rest = Math.round(bearing % 90);
+
+      if (bearing < 0) {
+        rest = 90 + rest;
+      }
+
+      if (rest === 0) {
+        rest = 90;
+      }
+
+      (_mapRef$current5 = mapRef.current) === null || _mapRef$current5 === void 0 ? void 0 : _mapRef$current5.setBearing(Math.round(bearing - Math.abs(rest)));
+    }
+  })))));
+};
+
+MlNavigationCompass.propTypes = {
+  /**
+   * Component id prefix
+   */
+  idPrefix: PropTypes.string,
+
+  /**
+   * Style object to adjust css definitions of the component.
+   */
+  style: PropTypes.object,
+
+  /**
+   * Style object to adjust css definitions of the background.
+   */
+  backgroundStyle: PropTypes.object,
+
+  /**
+   * Style object to adjust css definitions of the compass needle.
+   */
+  needleStyle: PropTypes.object,
+
+  /**
+   * Style object to adjust css definitions of the rotate right button.
+   */
+  rotateRightStyle: PropTypes.object,
+
+  /**
+   * Style object to adjust css definitions of the rotate left button.
+   */
+  rotateLeftStyle: PropTypes.object
+};
+
+/**
+ * Adds a button that makes the map follow the users GPS position using
+ * navigator.geolocation.watchPosition if activated
+ *
+ * @param {object} props
+ * @param {string} props.mapId Id of the target MapLibre instance in mapContext
+ *
+ * @component
+ */
+
+var MlFollowGps = function MlFollowGps(props) {
+  // Use a useRef hook to reference the layer object to be able to access it later inside useEffect hooks
+  var mapContext = useContext(MapContext);
+
+  var _useState = useState(false),
+      _useState2 = _slicedToArray(_useState, 2),
+      isFollowed = _useState2[0],
+      setIsFollowed = _useState2[1];
+
+  var _useState3 = useState(undefined),
+      _useState4 = _slicedToArray(_useState3, 2),
+      geoJson = _useState4[0],
+      setGeoJson = _useState4[1];
+
+  var watchIdRef = useRef(undefined);
+
+  var _useState5 = useState(false),
+      _useState6 = _slicedToArray(_useState5, 2),
+      locationAccessDenied = _useState6[0],
+      setLocationAccessDenied = _useState6[1];
+
+  var initializedRef = useRef(false);
+  var mapRef = useRef(undefined);
+  var componentId = useRef((props.idPrefix ? props.idPrefix : "MlFollowGps-") + v4());
+
+  var _useState7 = useState(30),
+      _useState8 = _slicedToArray(_useState7, 2),
+      accuracyRadius = _useState8[0],
+      setAccuracyRadius = _useState8[1];
+
+  useEffect(function () {
+    var _componentId = componentId.current;
+    return function () {
+      // This is the cleanup function, it is called when this react component is removed from react-dom
+      // try to remove anything this component has added to the MapLibre-gl instance
+      // e.g.: remove the layer
+      // mapContext.getMap(props.mapId).removeLayer(layerRef.current);
+      // check for the existence of map.style before calling getLayer or getSource
+      if (mapRef.current) {
+        mapRef.current.cleanup(_componentId);
+        mapRef.current = undefined;
+      }
+
+      if (watchIdRef.current) {
+        initializedRef.current = false;
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = undefined;
+      }
+    };
+  }, []);
+  useEffect(function () {
+    if (!mapContext.mapExists(props.mapId) || initializedRef.current) return; // the MapLibre-gl instance (mapContext.getMap(props.mapId)) is accessible here
+    // initialize the layer and add it to the MapLibre-gl instance or do something else with it
+
+    initializedRef.current = true;
+    mapRef.current = mapContext.getMap(props.mapId);
+    mapRef.current.setCenter([7.132122000552613, 50.716405378037706]);
+  }, [mapContext.mapIds, mapContext, props.mapId]);
+
+  var getLocationSuccess = function getLocationSuccess(pos) {
+    if (!mapRef.current) return;
+    mapRef.current.setCenter([pos.coords.longitude, pos.coords.latitude]);
+    setAccuracyRadius(pos.coords.accuracy);
+    setGeoJson(point([pos.coords.longitude, pos.coords.latitude]));
+  };
+
+  var getLocationError = function getLocationError(err) {
+    console.log("Access of user location denied");
+    setLocationAccessDenied(true);
+  };
+
+  return /*#__PURE__*/React__default.createElement(React__default.Fragment, null, isFollowed && geoJson && /*#__PURE__*/React__default.createElement(MlGeoJsonLayer, {
+    geojson: geoJson,
+    type: "circle",
+    paint: {
+      "circle-radius": {
+        stops: [[0, 0], [20, accuracyRadius / 0.075 / Math.cos(geoJson.geometry.coordinates[1] * Math.PI / 180)]],
+        base: 2
+      },
+      "circle-color": "#ee7700",
+      "circle-opacity": 0.5
+    }
+  }), isFollowed && geoJson && /*#__PURE__*/React__default.createElement(MlImageMarkerLayer, {
+    options: {
+      type: "symbol",
+      source: {
+        type: "geojson",
+        data: geoJson
+      },
+      layout: {
+        "icon-size": 0.1,
+        "icon-offset": [0, -340]
+      }
+    },
+    imgSrc: "/assets/marker.png"
+  }), /*#__PURE__*/React__default.createElement(Button, {
+    sx: _objectSpread2({
+      zIndex: 1002,
+      color: isFollowed ? "#bbb" : "#666"
+    }, props.style),
+    disabled: locationAccessDenied,
+    onClick: function onClick() {
+      if (isFollowed) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      } else {
+        watchIdRef.current = navigator.geolocation.watchPosition(getLocationSuccess, getLocationError);
+      }
+
+      setIsFollowed(!isFollowed);
+    }
+  }, " ", /*#__PURE__*/React__default.createElement(RoomIcon, {
+    sx: {}
+  }), " "));
+};
+
+MlFollowGps.defaultProps = {
+  mapId: undefined,
+  style: {
+    minWidth: "30px",
+    minHeight: "30px",
+    width: "30px",
+    height: "30px",
+    backgroundColor: "#414141",
+    borderRadius: "23%",
+    margin: 0.15,
+    ":hover": {
+      backgroundColor: "#515151",
+      color: "#ececec"
+    }
+  }
+};
+MlFollowGps.propTypes = {
+  /**
+   * Id of the target MapLibre instance in mapContext
+   */
+  mapId: PropTypes.string,
+
+  /**
+   * CSS style object that is applied to the button component
+   */
+  style: PropTypes.object
+};
+
+var MlNavigationTools = function MlNavigationTools(props) {
+  var mapContext = useContext(MapContext);
+  var initializedRef = useRef(false);
+  var mapRef = useRef(undefined);
+  var componentId = useRef((props.idPrefix ? props.idPrefix : "MlComponentTemplate-") + v4());
+
+  var _useState = useState(0),
+      _useState2 = _slicedToArray(_useState, 2),
+      pitch = _useState2[0],
+      setPitch = _useState2[1];
+
+  var _useState3 = useState(false),
+      _useState4 = _slicedToArray(_useState3, 2),
+      locationAccessDenied = _useState4[0],
+      setLocationAccessDenied = _useState4[1];
+
+  var buttonStyle = {
+    minWidth: "30px",
+    minHeight: "30px",
+    width: "30px",
+    height: "30px",
+    color: "#bbb",
+    backgroundColor: "#414141",
+    borderRadius: "23%",
+    //border: "1px solid #bbb",
+    //boxShadow: "0px 0px 4px rgba(0,0,0,.5)",
+    margin: 0.15,
+    ":hover": {
+      backgroundColor: "#515151",
+      color: "#ececec"
+    }
+  };
+  useEffect(function () {
+    var _componentId = componentId.current;
+    return function () {
+      // This is the cleanup function, it is called when this react component is removed from react-dom
+      // try to remove anything this component has added to the MapLibre-gl instance
+      // e.g.: remove the layer
+      // mapContext.getMap(props.mapId).removeLayer(layerRef.current);
+      // check for the existence of map.style before calling getLayer or getSource
+      if (mapRef.current) {
+        mapRef.current.cleanup(_componentId);
+        mapRef.current = undefined;
+      }
+
+      initializedRef.current = false;
+    };
+  }, []);
+  useEffect(function () {
+    if (!mapContext.mapExists(props.mapId) || initializedRef.current) return; // the MapLibre-gl instance (mapContext.getMap(props.mapId)) is accessible here
+    // initialize the layer and add it to the MapLibre-gl instance or do something else with it
+
+    initializedRef.current = true;
+    mapRef.current = mapContext.getMap(props.mapId);
+    mapRef.current.on("pitchend", function () {
+      setPitch(mapRef.current.getPitch());
+    }, componentId.current);
+    setPitch(mapRef.current.getPitch());
+  }, [mapContext.mapIds, mapContext, props.mapId]);
+
+  var zoomIn = function zoomIn() {
+    if (!mapRef.current) return;
+
+    if (mapRef.current.transform._zoom + 0.5 <= mapRef.current.transform._maxZoom) {
+      mapRef.current.easeTo({
+        zoom: mapRef.current.transform._zoom + 0.5
+      });
+    }
+  };
+
+  var zoomOut = function zoomOut() {
+    if (!mapRef.current) return;
+
+    if (mapRef.current.transform._zoom - 0.5 >= mapRef.current.transform._minZoom) {
+      mapRef.current.easeTo({
+        zoom: mapRef.current.transform._zoom - 0.5
+      });
+    }
+  };
+
+  var adjustPitch = function adjustPitch() {
+    if (!mapRef.current) return;
+    var targetPitch = 60;
+
+    if (mapRef.current.getPitch() !== 0) {
+      targetPitch = 0;
+    }
+
+    mapRef.current.easeTo({
+      pitch: targetPitch
+    });
+  };
+
+  var moveToCurrentLocation = function moveToCurrentLocation() {
+    navigator.geolocation.getCurrentPosition(getLocationSuccess, getLocationError);
+  };
+
+  var getLocationSuccess = function getLocationSuccess(location) {
+    mapRef.current.setCenter([location.coords.longitude, location.coords.latitude]);
+  };
+
+  var getLocationError = function getLocationError() {
+    console.log("Access of user location denied");
+    setLocationAccessDenied(true);
+  };
+
+  return /*#__PURE__*/React__default.createElement("div", {
+    style: {
+      zIndex: 501,
+      position: "absolute",
+      right: "20px",
+      bottom: "20px",
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, /*#__PURE__*/React__default.createElement(MlNavigationCompass, {
+    style: {
+      width: "31px",
+      position: "relative",
+      height: "50px",
+      marginLeft: "-5px"
+    },
+    backgroundStyle: {
+      boxShadow: "0px 0px 18px rgba(0,0,0,.5)"
+    }
+  }), /*#__PURE__*/React__default.createElement(Button, {
+    sx: _objectSpread2(_objectSpread2({}, buttonStyle), {}, {
+      fontSize: ".9em",
+      fontWeight: 600
+    }),
+    onClick: adjustPitch
+  }, pitch ? "2D" : "3D"), /*#__PURE__*/React__default.createElement(Button, {
+    sx: buttonStyle,
+    onClick: moveToCurrentLocation,
+    disabled: locationAccessDenied
+  }, /*#__PURE__*/React__default.createElement(GpsFixedIcon, {
+    sx: {
+      width: ".9em"
+    }
+  })), /*#__PURE__*/React__default.createElement(MlFollowGps, null), /*#__PURE__*/React__default.createElement(ButtonGroup, {
+    orientation: "vertical",
+    sx: {
+      width: "30px",
+      border: "none",
+      Button: {
+        minWidth: "30px !important",
+        border: "none",
+        padding: 0
+      },
+      "Button:hover": {
+        border: "none"
+      }
+    }
+  }, /*#__PURE__*/React__default.createElement(Button, {
+    sx: buttonStyle,
+    onClick: zoomIn
+  }, /*#__PURE__*/React__default.createElement(ControlPointIcon, null)), /*#__PURE__*/React__default.createElement(Button, {
+    sx: buttonStyle,
+    onClick: zoomOut
+  }, /*#__PURE__*/React__default.createElement(RemoveCircleOutlineIcon, null))));
 };
 
 var MlLayer = function MlLayer(props) {
@@ -1258,25 +2261,34 @@ var MlLayer = function MlLayer(props) {
     }
   }, [props.options, layerId, mapContext, props]);
   useEffect(function () {
-    if (!props.options || !mapContext.mapExists(props.mapId) || layerInitializedRef.current) return; // the MapLibre-gl instance (mapContext.map) is accessible here
+    if (!mapContext.mapExists(props.mapId) || layerInitializedRef.current) return; // the MapLibre-gl instance (mapContext.map) is accessible here
     // initialize the layer and add it to the MapLibre-gl instance or do something else with it
 
     mapRef.current = mapContext.getMap(props.mapId);
 
     if (mapRef.current) {
+      var _props$options, _props$options2;
+
       layerInitializedRef.current = true;
       mapRef.current.addLayer(_objectSpread2({
-        id: layerId
+        id: layerId,
+        type: "background",
+        paint: {
+          "background-color": "rgba(0,0,0,0)"
+        }
       }, props.options), props.insertBeforeLayer, componentId.current);
-      layerPaintConfRef.current = JSON.stringify(props.options.paint);
-      layerLayoutConfRef.current = JSON.stringify(props.options.layout);
+      layerPaintConfRef.current = JSON.stringify((_props$options = props.options) === null || _props$options === void 0 ? void 0 : _props$options.paint);
+      layerLayoutConfRef.current = JSON.stringify((_props$options2 = props.options) === null || _props$options2 === void 0 ? void 0 : _props$options2.layout);
     }
   }, [mapContext.mapIds, mapContext, props, layerId]);
-  return /*#__PURE__*/React.createElement(React.Fragment, null);
+  return /*#__PURE__*/React__default.createElement(React__default.Fragment, null);
 };
 
 /**
- * MlOsmLayer returns a Button that will add a standard OSM tile layer to the maplibre-gl instance.
+ * Adds a standard OSM tile layer to the maplibre-gl instancereference by
+ * props.mapId
+ *
+ * @component
  */
 
 var MlOsmLayer = function MlOsmLayer(props) {
@@ -1327,7 +2339,7 @@ var MlOsmLayer = function MlOsmLayer(props) {
       mapRef.current.setLayoutProperty(layerIdRef.current, "visibility", "none");
     }
   }, [showLayer]);
-  return /*#__PURE__*/React.createElement(Button, {
+  return /*#__PURE__*/React__default.createElement(Button, {
     color: "primary",
     variant: showLayer ? "contained" : "outlined",
     onClick: function onClick() {
@@ -1336,8 +2348,40 @@ var MlOsmLayer = function MlOsmLayer(props) {
   }, "OSM");
 };
 
+MlOsmLayer.propTypes = {
+  /**
+   * Id of the target MapLibre instance in mapContext
+   */
+  mapId: PropTypes.string,
+
+  /**
+   * Prefix of the component id this component uses when adding elements to the MapLibreGl-instance
+   */
+  idPrefix: PropTypes.string,
+
+  /**
+   * Options object that will be used as first parameter on the MapLibreGl.addSource call see MapLibre source options documentation.
+   */
+  sourceOptions: PropTypes.object,
+
+  /**
+   * Options object that will be used as first parameter on the MapLibreGl.addLayer call see MapLibre layer options documentation.
+   *
+   */
+  layerOptions: PropTypes.object,
+
+  /**
+   * The layerId of an existing layer this layer should be rendered visually beneath
+   * https://maplibre.org/maplibre-gl-js-docs/api/map/#map#addlayer - see "beforeId" property
+   */
+  insertBeforeLayer: PropTypes.string
+};
+
 /**
- * MlVectorTileLayer returns a Button that will add a standard OSM tile layer to the maplibre-gl instance.
+ * Adds a vector-tile source and 0...n vector-tile-layers to the MapLibre instance referenced by
+ * props.mapId
+ *
+ * @component
  */
 
 var MlVectorTileLayer = function MlVectorTileLayer(props) {
@@ -1426,24 +2470,77 @@ var MlVectorTileLayer = function MlVectorTileLayer(props) {
       mapRef.current.setLayoutProperty(layerName + idSuffixRef.current, "visibility", "none");
     }
   }, [props.visible]);
-  return /*#__PURE__*/React.createElement(React.Fragment, null);
+  return /*#__PURE__*/React__default.createElement(React__default.Fragment, null);
 };
 
+MlVectorTileLayer.propTypes = {
+  /**
+   * Id of the target MapLibre instance in mapContext
+   */
+  mapId: PropTypes.string,
+
+  /**
+   * Options object that will be used as first parameter on the MapLibreGl.addSource call see MapLibre source options documentation.
+   */
+  sourceOptions: PropTypes.object,
+
+  /**
+   * Object that hold layers
+   */
+  layers: PropTypes.object,
+
+  /**
+   * String of the URL of a wms layer
+   */
+  url: PropTypes.string
+};
+
+var defaultProps = {
+  visible: true,
+  urlParameters: {
+    bbox: "{bbox-epsg-3857}",
+    format: "image/png",
+    service: "WMS",
+    version: "1.1.1",
+    request: "GetMap",
+    srs: "EPSG:3857",
+    width: 256,
+    height: 256,
+    styles: ""
+  },
+  attribution: "",
+  sourceOptions: {
+    minZoom: 0,
+    maxZoom: 20
+  },
+  layerOptions: {
+    minZoom: 0,
+    maxZoom: 20
+  }
+};
 /**
- * MlWmsLayer returns a Button that will add a standard OSM tile layer to the maplibre-gl instance.
+ * Adds a WMS raster source & layer to the maplibre-gl instance
+ *
+ * @param {object} props
+ * @param {object} props.urlParameters URL query parameters that will be added to the WMS URL. A layers property (string) is mandatory. Any value defined on this attribute will extend the default object
+ * @param {string} props.url WMS URL
+ * @param {bool} props.visible Sets layer "visibility" property to "visible" if true or "none" if false
+ * @param {string} props.attribution MapLibre attribution shown in the bottom right of the map, if this layer is visible
+ * @param {string} props.mapId Id of the target MapLibre instance in mapContext
+ * @param {object} props.sourceOptions Object that is passed to the MapLibre.addSource call as config option parameter
+ * @param {object} props.layerOptions Object that is passed to the MapLibre.addLayer call as config option parameter
+ * @param {string} props.insertBeforeLayer Id of an existing layer in the mapLibre instance to help specify the layer order
+                                           This layer will be visually beneath the layer with the "insertBeforeLayer" id
+ *
+ * @component
  */
 
 var MlWmsLayer = function MlWmsLayer(props) {
   var mapContext = useContext(MapContext);
-
-  var _useState = useState(true),
-      _useState2 = _slicedToArray(_useState, 2),
-      showLayer = _useState2[0],
-      setShowLayer = _useState2[1];
-
   var componentId = useRef((props.idPrefix ? props.idPrefix : "MlWmsLayer-") + v4());
   var mapRef = useRef(null);
   var initializedRef = useRef(false);
+  var layerId = useRef(props.layerId || componentId.current);
   useEffect(function () {
     var _componentId = componentId.current;
     return function () {
@@ -1452,44 +2549,114 @@ var MlWmsLayer = function MlWmsLayer(props) {
         mapRef.current.cleanup(_componentId);
         mapRef.current = null;
       }
+
+      initializedRef.current = false;
     };
   }, []);
   useEffect(function () {
+    var _propsUrlParams2;
+
     if (!mapContext.mapExists(props.mapId) || initializedRef.current) return;
+    mapRef.current = mapContext.getMap(props.mapId);
+    if (!mapRef.current) return;
     initializedRef.current = true;
-    mapRef.current = mapContext.getMap(props.mapId); // Add the new layer to the openlayers instance once it is available
 
-    mapRef.current.addSource(componentId.current, {
+    var _propsUrlParams;
+
+    var _wmsUrl = props.url;
+
+    if (props.url.indexOf("?") !== -1) {
+      _propsUrlParams = props.url.split("?");
+      _wmsUrl = _propsUrlParams[0];
+    }
+
+    var _urlParamsFromUrl = new URLSearchParams((_propsUrlParams2 = _propsUrlParams) === null || _propsUrlParams2 === void 0 ? void 0 : _propsUrlParams2[1]); // first spread in default props manually to enable overriding a single parameter without replacing the whole default urlParameters object
+
+
+    var urlParamsObj = _objectSpread2(_objectSpread2(_objectSpread2({}, defaultProps.urlParameters), Object.fromEntries(_urlParamsFromUrl)), props.urlParameters);
+
+    var urlParams = new URLSearchParams(urlParamsObj);
+    var urlParamsStr = decodeURIComponent(urlParams.toString()) + "".replace(/%2F/g, "/").replace(/%3A/g, ":");
+    mapRef.current.addSource(layerId.current, _objectSpread2({
       type: "raster",
-      tiles: [props.url + "?bbox={bbox-epsg-3857}&format=image/png&service=WMS&version=1.1.1&request=GetMap&srs=EPSG:3857&width=256&height=256&layers=" + props.layer],
-      tileSize: 256,
-      attribution: "" //...props.sourceOptions,
-
-    }, componentId.current);
+      tiles: [_wmsUrl + "?" + urlParamsStr],
+      tileSize: urlParamsObj.width,
+      attribution: props.attribution
+    }, props.sourceOptions), componentId.current);
     mapRef.current.addLayer(_objectSpread2({
-      id: componentId.current,
+      id: layerId.current,
       type: "raster",
-      source: componentId.current,
-      minzoom: 0,
-      maxzoom: 10
-    }, props.sourceOptions), props.insertBeforeLayer, componentId.current);
+      source: componentId.current
+    }, props.layerOptions), props.insertBeforeLayer, componentId.current);
+
+    if (!props.visible) {
+      mapRef.current.setLayoutProperty(componentId.current, "visibility", "none");
+    }
   }, [mapContext.mapIds, mapContext, props]);
   useEffect(function () {
-    if (!mapRef.current) return; // toggle layer visibility by changing the layout object's visibility property
+    if (!mapRef.current || !initializedRef.current) return; // toggle layer visibility by changing the layout object's visibility property
 
-    if (showLayer) {
+    if (props.visible) {
       mapRef.current.setLayoutProperty(componentId.current, "visibility", "visible");
     } else {
       mapRef.current.setLayoutProperty(componentId.current, "visibility", "none");
     }
-  }, [showLayer]);
-  return /*#__PURE__*/React.createElement(Button, {
-    color: "primary",
-    variant: showLayer ? "contained" : "outlined",
-    onClick: function onClick() {
-      return setShowLayer(!showLayer);
-    }
-  }, "WMS");
+  }, [props.visible]);
+  return /*#__PURE__*/React__default.createElement(React__default.Fragment, null);
+};
+
+MlWmsLayer.defaultProps = _objectSpread2({}, defaultProps);
+MlWmsLayer.propTypes = {
+  /**
+   * WMS URL
+   */
+  url: PropTypes.string.isRequired,
+
+  /**
+   * URL query parameters that will be added to the WMS URL. A layers property (string) is mandatory. Any value defined on this attribute will extend the default object.
+   */
+  urlParameters: PropTypes.shape({
+    layers: PropTypes.string.isRequired,
+    bbox: PropTypes.string,
+    format: PropTypes.string,
+    service: PropTypes.string,
+    version: PropTypes.string,
+    request: PropTypes.string,
+    srs: PropTypes.string,
+    width: PropTypes.number,
+    height: PropTypes.number
+  }),
+
+  /**
+   * Id of the target MapLibre instance in mapContext
+   */
+  mapId: PropTypes.string,
+
+  /**
+   * MapLibre attribution shown in the bottom right of the map, if this layer is visible
+   */
+  attribution: PropTypes.string,
+
+  /**
+   * Object that is passed to the MapLibre.addLayer call as config option parameter
+   */
+  layerOptions: PropTypes.object,
+
+  /**
+   * Object that is passed to the MapLibre.addSource call as config option parameter
+   */
+  sourceOptions: PropTypes.object,
+
+  /**
+   * Id of an existing layer in the mapLibre instance to help specify the layer order
+   * This layer will be visually beneath the layer with the "insertBeforeLayer" id.
+   */
+  insertBeforeLayer: PropTypes.string,
+
+  /**
+   * Sets layer "visibility" property to "visible" if true or "none" if false
+   */
+  visible: PropTypes.bool
 };
 
 var classes = {
@@ -2846,7 +4013,6 @@ function MlFeatureEditor(props) {
   };
 
   var mouseUpHandler = function mouseUpHandler() {
-    console.log("mouseup");
     setMouseUpTrigger(Math.random());
   };
 
@@ -2908,7 +4074,7 @@ function MlFeatureEditor(props) {
       draw.current.changeMode(props.mode);
     }
   }, [props.mode]);
-  return /*#__PURE__*/React.createElement(React.Fragment, null);
+  return /*#__PURE__*/React__default.createElement(React__default.Fragment, null);
 }
 
 var MlBasicComponent = function MlBasicComponent(props) {
@@ -2936,12 +4102,15 @@ var MlBasicComponent = function MlBasicComponent(props) {
       props.mapIsReady(mapContext.getMap(props.mapId));
     }
   }, [mapContext.mapIds, mapContext, props]);
-  return /*#__PURE__*/React.createElement(React.Fragment, null);
+  return /*#__PURE__*/React__default.createElement(React__default.Fragment, null);
 };
 
 /**
  *
- * MlLayerMagnify returns a Button that will add a standard OSM tile layer to the maplibre-gl instance.
+ * Hides the MapLibreMap referenced by props.map2Id except for the "magnifier"-circle that reveals
+ * the map and can be dragged around on top of the MapLibreMap referenced by props.map1Id
+ *
+ * @component
  */
 
 var MlLayerMagnify = function MlLayerMagnify(props) {
@@ -2962,7 +4131,7 @@ var MlLayerMagnify = function MlLayerMagnify(props) {
       setSwipeY = _useState4[1];
 
   var swipeYRef = useRef(50);
-  var magnifierRadiusRef = useRef(props.magnifierRadius || 200);
+  var magnifierRadiusRef = useRef(props.magnifierRadius);
 
   var _useState5 = useState(magnifierRadiusRef.current),
       _useState6 = _slicedToArray(_useState5, 2),
@@ -3000,7 +4169,7 @@ var MlLayerMagnify = function MlLayerMagnify(props) {
   }, []);
   var onMove = useCallback(function (e) {
     if (!mapExists()) return;
-    var bounds = mapContext.map.getCanvas().getBoundingClientRect();
+    var bounds = mapContext.maps[props.map1Id].getCanvas().getBoundingClientRect();
     var clientX = e.clientX || (typeof e.touches !== "undefined" && typeof e.touches[0] !== "undefined" ? e.touches[0].clientX : 0);
     var clientY = e.clientY || (typeof e.touches !== "undefined" && typeof e.touches[0] !== "undefined" ? e.touches[0].clientY : 0);
     clientX -= bounds.x;
@@ -3019,7 +4188,7 @@ var MlLayerMagnify = function MlLayerMagnify(props) {
   useEffect(function () {
     if (!mapExists() || syncMoveInitializedRef.current) return;
     syncMoveInitializedRef.current = true;
-    syncCleanupFunctionRef.current = syncMove(mapContext.getMap(props.map1Id).map, mapContext.getMap(props.map2Id).map);
+    syncCleanupFunctionRef.current = syncMove(mapContext.getMap(props.map1Id), mapContext.getMap(props.map2Id));
 
     if (mapContext.maps[props.map1Id].getCanvas().clientWidth > mapContext.maps[props.map1Id].getCanvas().clientHeight && magnifierRadiusRef.current * 2 > mapContext.maps[props.map1Id].getCanvas().clientHeight) {
       magnifierRadiusRef.current = Math.floor(mapContext.maps[props.map1Id].getCanvas().clientHeight / 2);
@@ -3062,7 +4231,7 @@ var MlLayerMagnify = function MlLayerMagnify(props) {
     mapContext.map.getCanvas().dispatchEvent(evCopy);
   };
 
-  return /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React__default.createElement("div", {
     style: {
       position: "absolute",
       left: swipeX + "%",
@@ -3089,8 +4258,30 @@ var MlLayerMagnify = function MlLayerMagnify(props) {
   });
 };
 
+MlLayerMagnify.defaultProps = {
+  magnifierRadius: 200
+};
+MlLayerMagnify.propTypes = {
+  /**
+   * Id of the first MapLibre instance
+   */
+  map1Id: PropTypes.string,
+
+  /**
+   * Id of the second MapLibre instance
+   */
+  map2Id: PropTypes.string,
+
+  /**
+   * Size of the "magnifier"-circle
+   */
+  magnifierRadius: PropTypes.number
+};
+
 /**
- * MlLayerSwipe returns a Button that will add a standard OSM tile layer to the maplibre-gl instance.
+ *  MlLayerSwipe returns a Button that will add a standard OSM tile layer to the maplibre-gl instance, that you can move like a curtain.
+ *
+ * @component
  */
 
 var MlLayerSwipe = function MlLayerSwipe(props) {
@@ -3124,7 +4315,7 @@ var MlLayerSwipe = function MlLayerSwipe(props) {
 
   var onMove = useCallback(function (e) {
     if (!mapExists()) return;
-    var bounds = mapContext.map.getCanvas().getBoundingClientRect();
+    var bounds = mapContext.maps[props.map1Id].getCanvas().getBoundingClientRect();
     var clientX = e.clientX || (typeof e.touches !== "undefined" && typeof e.touches[0] !== "undefined" ? e.touches[0].clientX : 0);
     clientX -= bounds.x;
     var swipeX_tmp = (clientX / bounds.width * 100).toFixed(2);
@@ -3133,16 +4324,16 @@ var MlLayerSwipe = function MlLayerSwipe(props) {
       setSwipeX(swipeX_tmp);
       swipeXRef.current = swipeX_tmp;
       var clipA = "rect(0, " + swipeXRef.current * bounds.width / 100 + "px, 999em, 0)";
-      mapContext.getMap(props.map2Id).getContainer().style.clip = clipA;
+      mapContext.maps[props.map2Id].getContainer().style.clip = clipA;
     }
-  }, [mapContext, mapExists, props.map2Id]);
+  }, [mapContext, mapExists, props.map1Id, props.map2Id]);
   useEffect(function () {
     return cleanup;
   }, []);
   useEffect(function () {
     if (!mapExists() || initializedRef.current) return;
     initializedRef.current = true;
-    syncCleanupFunctionRef.current = syncMove(mapContext.getMap(props.map1Id).map, mapContext.getMap(props.map2Id).map);
+    syncCleanupFunctionRef.current = syncMove(mapContext.getMap(props.map1Id), mapContext.getMap(props.map2Id));
     onMove({
       clientX: mapContext.maps[props.map1Id].getCanvas().clientWidth / 2
     });
@@ -3168,7 +4359,7 @@ var MlLayerSwipe = function MlLayerSwipe(props) {
     document.removeEventListener("mouseup", onMouseUp);
   };
 
-  return /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React__default.createElement("div", {
     style: {
       position: "absolute",
       left: swipeX + "%",
@@ -3193,7 +4384,19 @@ var MlLayerSwipe = function MlLayerSwipe(props) {
   });
 };
 
-var GeoJsonContext = /*#__PURE__*/React.createContext({});
+MlLayerSwipe.propTypes = {
+  /**
+   * Id of the first MapLibre instance.
+   */
+  map1Id: PropTypes.string,
+
+  /**
+   * Id of the second MapLibre instance.
+   */
+  map2Id: PropTypes.string
+};
+
+var GeoJsonContext = /*#__PURE__*/React__default.createContext({});
 var GeoJsonContextProvider = GeoJsonContext.Provider;
 
 var toGeoJSON = function () {
@@ -3803,6 +5006,8 @@ var toGeoJSON = function () {
 
 /**
  * MlGPXViewer returns a dropzone and a button to load a GPX Track into the map.
+ *
+ * @component
  */
 
 var MlGPXViewer = function MlGPXViewer(props) {
@@ -3977,7 +5182,6 @@ var MlGPXViewer = function MlGPXViewer(props) {
 
     try {
       setMetaData([]);
-      console.log(gpxAsString);
       var domParser = new DOMParser();
       var gpxDoc = domParser.parseFromString(gpxAsString, "application/xml");
       var metadata = gpxDoc.querySelector("metadata");
@@ -4032,7 +5236,7 @@ var MlGPXViewer = function MlGPXViewer(props) {
     fileupload.current.click();
   };
 
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(IconButton, {
+  return /*#__PURE__*/React__default.createElement(React__default.Fragment, null, /*#__PURE__*/React__default.createElement(IconButton, {
     onClick: manualUpload,
     style: {
       position: "absolute",
@@ -4042,7 +5246,7 @@ var MlGPXViewer = function MlGPXViewer(props) {
       zIndex: 1000
     },
     size: "large"
-  }, /*#__PURE__*/React.createElement("input", {
+  }, /*#__PURE__*/React__default.createElement("input", {
     ref: fileupload,
     onChange: fileUploadOnChange,
     type: "file",
@@ -4051,7 +5255,7 @@ var MlGPXViewer = function MlGPXViewer(props) {
     style: {
       display: "none"
     }
-  }), /*#__PURE__*/React.createElement(FileCopy, null)), /*#__PURE__*/React.createElement(IconButton, {
+  }), /*#__PURE__*/React__default.createElement(FileCopy, null)), /*#__PURE__*/React__default.createElement(IconButton, {
     onClick: toogleDrawer,
     style: {
       position: "absolute",
@@ -4061,24 +5265,24 @@ var MlGPXViewer = function MlGPXViewer(props) {
       zIndex: 1000
     },
     size: "large"
-  }, /*#__PURE__*/React.createElement(InfoIcon, null)), /*#__PURE__*/React.createElement(Drawer, {
+  }, /*#__PURE__*/React__default.createElement(InfoIcon, null)), /*#__PURE__*/React__default.createElement(Drawer, {
     variant: "persistent",
     anchor: "left",
     open: open
-  }, /*#__PURE__*/React.createElement(Typography, {
+  }, /*#__PURE__*/React__default.createElement(Typography, {
     variant: "h6",
     style: {
       textAlign: "center",
       padding: "1em"
     },
     noWrap: true
-  }, "Informationen zur Route"), /*#__PURE__*/React.createElement(Divider, null), /*#__PURE__*/React.createElement(List, null, metaData.map(function (item) {
-    return /*#__PURE__*/React.createElement(ListItem, {
+  }, "Informationen zur Route"), /*#__PURE__*/React__default.createElement(Divider, null), /*#__PURE__*/React__default.createElement(List, null, metaData.map(function (item) {
+    return /*#__PURE__*/React__default.createElement(ListItem, {
       key: "item--".concat(item.id)
-    }, /*#__PURE__*/React.createElement(ListItemText, {
+    }, /*#__PURE__*/React__default.createElement(ListItemText, {
       primary: item.value
     }));
-  }))), /*#__PURE__*/React.createElement("div", {
+  }))), /*#__PURE__*/React__default.createElement("div", {
     onDrop: dropHandler,
     ref: dropZone,
     style: {
@@ -4090,7 +5294,7 @@ var MlGPXViewer = function MlGPXViewer(props) {
       height: "100%",
       zIndex: zIndex
     }
-  }, /*#__PURE__*/React.createElement(Typography, {
+  }, /*#__PURE__*/React__default.createElement(Typography, {
     variant: "h6",
     style: {
       top: "50%",
@@ -4105,6 +5309,28 @@ var MlGPXViewer = function MlGPXViewer(props) {
 
 MlGPXViewer.defaultProps = {
   visible: true
+};
+MlGPXViewer.propTypes = {
+  /**
+   * Id of the target MapLibre instance in mapContext
+   */
+  mapId: PropTypes.string,
+
+  /**
+   * Prefix of the component id this component uses when adding elements to the MapLibreGl-instance
+   */
+  idPrefix: PropTypes.string,
+
+  /**
+   * Sets the layers layout-property "visibility" to "none" if false or "visible" if true
+   */
+  visible: PropTypes.bool,
+
+  /**
+   * The layerId of an existing layer this layer should be rendered visually beneath
+   * https://maplibre.org/maplibre-gl-js-docs/api/map/#map#addlayer - see "beforeId" property
+   */
+  insertBeforeLayer: PropTypes.string
 };
 
 var GeoJsonProvider = function GeoJsonProvider(_ref) {
@@ -4130,7 +5356,7 @@ var GeoJsonProvider = function GeoJsonProvider(_ref) {
     setData: setData,
     getEmptyFeatureCollection: getEmptyFeatureCollection
   };
-  return /*#__PURE__*/React.createElement(GeoJsonContextProvider, {
+  return /*#__PURE__*/React__default.createElement(GeoJsonContextProvider, {
     value: value
   }, children);
 };
@@ -4139,5 +5365,166 @@ GeoJsonProvider.propTypes = {
   children: PropTypes.node.isRequired
 };
 
-export { GeoJsonContext, GeoJsonProvider, MapLibreMap, MapLibreMap$1 as MapLibreMapDebug, MlBasicComponent, MlComponentTemplate, MlCompositeLayer, MlCreatePdfButton, MlFeatureEditor, MlGPXViewer, MlGeoJsonLayer, MlImageMarkerLayer, MlLayer, MlLayerMagnify, MlLayerSwipe, MlOsmLayer, MlVectorTileLayer, MlWmsLayer };
+/**
+ * React hook that allows subscribing to map state changes
+ *
+ * @component
+ */
+
+function useMapState(props) {
+  // Use a useRef hook to reference the layer object to be able to access it later inside useEffect hooks
+  var mapContext = useContext(MapContext);
+  var initializedRef = useRef(false);
+  var mapRef = useRef(undefined);
+
+  var _useState = useState(undefined),
+      _useState2 = _slicedToArray(_useState, 2),
+      center = _useState2[0],
+      setCenter = _useState2[1];
+
+  var _useState3 = useState(undefined),
+      _useState4 = _slicedToArray(_useState3, 2),
+      viewport = _useState4[0],
+      setViewport = _useState4[1];
+
+  var viewportRef = useRef(undefined);
+
+  var _useState5 = useState(undefined),
+      _useState6 = _slicedToArray(_useState5, 2),
+      layers = _useState6[0],
+      setLayers = _useState6[1];
+
+  var layersRef = useRef(undefined); //const mapRef = useRef(props.map);
+
+  var componentId = useRef(v4());
+  /**
+   * returns the element if it matches the defined filter criteria
+   * to be used as filter function on the layers array
+   *
+   * @param {object} layer
+   */
+
+  var layerIdFilter = useCallback(function (layer) {
+    if (!props.filter.includeBaseLayers && layer.baseLayer) {
+      return false;
+    }
+
+    if (typeof props.filter.matchLayerIds !== "undefined") {
+      if (props.filter.matchLayerIds instanceof RegExp) {
+        return props.filter.matchLayerIds.test(layer.id);
+      } else {
+        return layer.id.includes(props.filter.matchLayerIds);
+      }
+    }
+
+    return true;
+  }, [props.filter]);
+  var refreshLayerState = useCallback(function () {
+    var _layerState = mapRef.current.wrapper.layerState.filter(layerIdFilter);
+
+    var _layerStateString = JSON.stringify(_layerState);
+
+    if (layersRef.current !== _layerStateString) {
+      layersRef.current = _layerStateString;
+      setLayers(_layerState);
+    }
+  }, [layerIdFilter]);
+  useEffect(function () {
+    var _componentId = componentId.current;
+    return function () {
+      if (mapRef.current) {
+        mapRef.current.cleanup(_componentId);
+        mapRef.current = undefined;
+      }
+
+      initializedRef.current = false;
+    };
+  }, []);
+  useEffect(function () {
+    var _props$watch, _props$watch2;
+
+    if (!mapContext.mapExists(props.mapId) || initializedRef.current) return; // the MapLibre-gl instance (mapContext.getMap(props.mapId)) is accessible here
+    // initialize the layer and add it to the MapLibre-gl instance or do something else with it
+
+    initializedRef.current = true;
+    mapRef.current = mapContext.getMap(props.mapId);
+    /*
+    mapRef.current.on(
+      "move",
+      () => {
+        setCenter(mapRef.current.getCenter());
+      },
+      componentId.current
+    );
+    */
+
+    if (props !== null && props !== void 0 && (_props$watch = props.watch) !== null && _props$watch !== void 0 && _props$watch.viewport) {
+      setViewport(mapRef.current.wrapper.viewportState);
+      mapRef.current.wrapper.on("viewportchange", function () {
+        var _mapRef$current;
+
+        if (viewportRef.current !== ((_mapRef$current = mapRef.current) === null || _mapRef$current === void 0 ? void 0 : _mapRef$current.wrapper.viewportStateString)) {
+          var _mapRef$current2, _mapRef$current3, _mapRef$current3$wrap;
+
+          setViewport((_mapRef$current2 = mapRef.current) === null || _mapRef$current2 === void 0 ? void 0 : _mapRef$current2.wrapper.viewportState);
+          setCenter((_mapRef$current3 = mapRef.current) === null || _mapRef$current3 === void 0 ? void 0 : (_mapRef$current3$wrap = _mapRef$current3.wrapper.viewportState) === null || _mapRef$current3$wrap === void 0 ? void 0 : _mapRef$current3$wrap.center);
+        }
+      }, componentId.current);
+    }
+
+    if (props !== null && props !== void 0 && (_props$watch2 = props.watch) !== null && _props$watch2 !== void 0 && _props$watch2.layers) {
+      var _props$filter, _props$filter2;
+
+      refreshLayerState();
+      mapRef.current.wrapper.on("layerchange", refreshLayerState, {
+        includeBaseLayers: props === null || props === void 0 ? void 0 : (_props$filter = props.filter) === null || _props$filter === void 0 ? void 0 : _props$filter.includeBaseLayers,
+        matchLayerIds: props === null || props === void 0 ? void 0 : (_props$filter2 = props.filter) === null || _props$filter2 === void 0 ? void 0 : _props$filter2.matchLayerIds
+      }, componentId.current);
+    }
+  }, [mapContext.mapIds, mapContext, props.mapId, refreshLayerState]);
+  return {
+    layers: layers,
+    viewport: viewport
+  };
+}
+
+useMapState.defaultProps = {
+  mapId: undefined,
+  watch: {
+    layers: true,
+    sources: false,
+    viewport: false
+  },
+  filter: {
+    includeBaseLayers: false
+  }
+};
+useMapState.propTypes = {
+  /**
+   * Id of the target MapLibre instance in mapContext
+   */
+  mapId: PropTypes.string,
+
+  /**
+   * Defines map Resources to watch
+   */
+  watch: PropTypes.shape({
+    layers: PropTypes.bool,
+    sources: PropTypes.bool,
+    viewport: PropTypes.bool
+  }),
+
+  /**
+   * Filter string or RegExp to more explicitly define the elements watched and increase performance
+   * strings will be matched using layerId.includes(matchString)
+   * RegExps will be matched using matchRegExp.test(layerId)
+   */
+  filter: PropTypes.shape({
+    includeBaseLayers: PropTypes.bool,
+    matchLayerIds: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(RegExp)]),
+    matchSourceIds: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(RegExp)])
+  })
+};
+
+export { GeoJsonContext, GeoJsonProvider, MapLibreMap, MlBasicComponent, MlComponentTemplate, MlCreatePdfButton, MlFeatureEditor, MlFillExtrusionLayer, MlGPXViewer, MlGeoJsonLayer, MlImageMarkerLayer, MlLayer, MlLayerMagnify, MlLayerSwipe, MlNavigationCompass, MlNavigationTools, MlOsmLayer, MlVectorTileLayer, MlWmsLayer, useMapState };
 //# sourceMappingURL=index.esm.js.map

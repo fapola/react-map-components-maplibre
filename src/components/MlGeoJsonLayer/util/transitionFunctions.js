@@ -8,14 +8,14 @@ const _showNextTransitionSegment = function (
   transitionGeojsonDataRef,
   transitionGeojsonCommonDataRef,
   currentTransitionStepRef,
-  msPerStep
+  msPerStep,
+  transitionTimeoutRef
 ) {
-  console.log("SHOW NEXT TRANSITION SEGMENT CALLED");
   if (
     typeof map.getSource(layerId) === "undefined" ||
     !transitionInProgressRef.current
   ) {
-    setTimeout(() => _showNextTransitionSegment(...arguments), msPerStep);
+    transitionTimeoutRef.current = setTimeout(() => _showNextTransitionSegment(...arguments), msPerStep);
     return;
   }
   if (
@@ -32,6 +32,10 @@ const _showNextTransitionSegment = function (
               .geometry.coordinates,
           ]);
 
+    if (!map?.getSource?.(layerId)) {
+      return;
+    }
+
     map.getSource(layerId).setData(newData);
 
     if (typeof props.onTransitionFrame === "function") {
@@ -43,7 +47,7 @@ const _showNextTransitionSegment = function (
       transitionInProgressRef.current &&
       currentTransitionStepRef.current < transitionGeojsonDataRef.current.length
     ) {
-      setTimeout(() => _showNextTransitionSegment(...arguments), msPerStep);
+      transitionTimeoutRef.current = setTimeout(() => _showNextTransitionSegment(...arguments), msPerStep);
     } else {
       if (typeof props.onTransitionEnd === "function") {
         props.onTransitionEnd(props.geojson);
@@ -63,10 +67,10 @@ const _transitionToGeojson = (
   msPerStep,
   currentTransitionStepRef,
   map,
-  layerId
+  layerId,
+  transitionTimeoutRef
 ) => {
   // create the transition geojson between oldGeojsonRef.current and props.geojson
-  //console.log("start transition");
 
   // create a geojson that contains no common point between the two line features
   let transitionCoordinatesShort = [];
@@ -117,8 +121,6 @@ const _transitionToGeojson = (
     reverseOrder = true;
   }
 
-  //console.log(shorterGeojson);
-  //console.log(longerGeojson);
   if (longerGeojson && shorterGeojson) {
     for (var i = 0, len = longerGeojson.geometry.coordinates.length; i < len; i++) {
       if (
@@ -193,12 +195,12 @@ const _transitionToGeojson = (
     );
     // for some reason turf.lineChunk returns the full lineString as element 0, chunks start at 1
     tmpLinestring = tmpChunks.features[1];
-    for (i = 1; i < srcTransitionSteps; i++) {
+    for (i = 0; i < srcTransitionSteps; i++) {
       transitionGeojsonDataRef.current.push(tmpLinestring);
-      if (typeof tmpChunks.features[i + 1] !== "undefined") {
+      if (typeof tmpChunks.features[i] !== "undefined") {
         tmpLinestring = turf.lineString([
           ...tmpLinestring.geometry.coordinates,
-          ...tmpChunks.features[i + 1].geometry.coordinates,
+          ...tmpChunks.features[i].geometry.coordinates,
         ]);
       } else {
         transitionGeojsonDataRef.current.push(tmpLinestring);
@@ -216,12 +218,12 @@ const _transitionToGeojson = (
     );
     // for some reason turf.lineChunk returns the full lineString as element 0, chunks start at 1
     tmpLinestring = tmpChunks.features[1];
-    for (i = 1; i < targetTransitionSteps; i++) {
+    for (i = 0; i < targetTransitionSteps; i++) {
       transitionGeojsonDataRef.current.push(tmpLinestring);
-      if (typeof tmpChunks.features[i + 1] !== "undefined") {
+      if (typeof tmpChunks.features[i] !== "undefined") {
         tmpLinestring = turf.lineString([
           ...tmpLinestring.geometry.coordinates,
-          ...tmpChunks.features[i + 1].geometry.coordinates,
+          ...tmpChunks.features[i].geometry.coordinates,
         ]);
       } else {
         transitionGeojsonDataRef.current.push(tmpLinestring);
@@ -233,7 +235,7 @@ const _transitionToGeojson = (
 
   currentTransitionStepRef.current = 1;
   transitionInProgressRef.current = true;
-  setTimeout(
+  transitionTimeoutRef.current = setTimeout(
     () =>
       _showNextTransitionSegment(
         props,
@@ -243,7 +245,8 @@ const _transitionToGeojson = (
         transitionGeojsonDataRef,
         transitionGeojsonCommonDataRef,
         currentTransitionStepRef,
-        msPerStep
+        msPerStep,
+        transitionTimeoutRef
       ),
     msPerStep
   );

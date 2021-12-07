@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useContext, useState } from "react";
 import { mount } from "enzyme";
-import { MapContext, MapComponentsProvider } from "react-map-components-core";
+import { MapContext, MapComponentsProvider } from "@mapcomponents/react-core";
 import { v4 as uuidv4 } from "uuid";
 import MapLibreMap from "../MapLibreMap";
 
@@ -296,7 +296,8 @@ describe("MapLibreGlWrapper - event tests", () => {
       </MapComponentsProvider>
     );
 
-    expect(mockMapLibreMethods.on).toHaveBeenCalledTimes(1);
+    // MapLibreGlWrapper now subscribes to "data", "move" events on its own
+    expect(mockMapLibreMethods.on).toHaveBeenCalledTimes(3);
   });
 
   it("should remove an event using off from MapLibreGl using MapLibreGlWrapper.cleanup(componentId)", async () => {
@@ -308,7 +309,8 @@ describe("MapLibreGlWrapper - event tests", () => {
       </MapComponentsProvider>
     );
 
-    expect(mockMapLibreMethods.on).toHaveBeenCalledTimes(1);
+    // MapLibreGlWrapper now subscribes to "data", "move" events on its own
+    expect(mockMapLibreMethods.on).toHaveBeenCalledTimes(3);
 
     wrapper.find(".toggle_children_are_visible").simulate("click");
 
@@ -324,7 +326,8 @@ describe("MapLibreGlWrapper - event tests", () => {
       </MapComponentsProvider>
     );
 
-    expect(mockMapLibreMethods.on).toHaveBeenCalledTimes(3);
+    // MapLibreGlWrapper now subscribes to "data", "move" events on its own
+    expect(mockMapLibreMethods.on).toHaveBeenCalledTimes(5);
 
     wrapper.find(".toggle_children_are_visible").simulate("click");
 

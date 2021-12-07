@@ -1,6 +1,6 @@
 import React, { useContext, useState } from "react";
 import { mount } from "enzyme";
-import { MapContext, MapComponentsProvider } from "react-map-components-core";
+import { MapContext, MapComponentsProvider } from "@mapcomponents/react-core";
 import MapLibreMap from "./../components/MapLibreMap/MapLibreMap";
 
 const layerRemovalTest = (
@@ -75,7 +75,6 @@ const layerRemovalTest = (
 
         wrapper.find(".trigger_refresh").simulate("click");
 
-        //console.log(wrapper.find(".layers_json").text());
         expect(regexLayerNameTest.test(wrapper.find(".layers_json").text())).toEqual(
           true
         );
