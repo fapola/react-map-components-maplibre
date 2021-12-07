@@ -25,15 +25,10 @@ const MlGeoJsonLayer = (props) => {
   const currentTransitionStepRef = useRef(false);
   const transitionGeojsonDataRef = useRef([]);
   const transitionGeojsonCommonDataRef = useRef([]);
-<<<<<<< HEAD
-  const componentId = useRef(props.layerId  || ("MlGeoJsonLayer-" + uuidv4()));
-  
-=======
   const componentId = useRef(
     (props.layerId ? props.layerId : "MlGeoJsonLayer-") + (props.idSuffix || uuidv4())
   );
   const layerId = useRef(props.layerId || componentId.current);
->>>>>>> main
 
   useEffect(() => {
     let _componentId = componentId.current;
