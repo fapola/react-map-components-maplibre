@@ -282,17 +282,17 @@
         "__isArgsStory": true
       }
     },
-    "mapcomponents-mllayerswitcher--example-config": {
-      "id": "mapcomponents-mllayerswitcher--example-config",
-      "name": "Example Config",
+    "mapcomponents-mllayerswitcher--background-switcher": {
+      "id": "mapcomponents-mllayerswitcher--background-switcher",
+      "name": "Background Switcher",
       "title": "MapComponents/MlLayerSwitcher",
       "importPath": 1096,
       "kind": "MapComponents/MlLayerSwitcher",
-      "story": "Example Config",
+      "story": "Background Switcher",
       "parameters": {
         "fileName": 1096,
         "framework": "react",
-        "__id": "mapcomponents-mllayerswitcher--example-config",
+        "__id": "mapcomponents-mllayerswitcher--background-switcher",
         "__isArgsStory": true
       }
     },
