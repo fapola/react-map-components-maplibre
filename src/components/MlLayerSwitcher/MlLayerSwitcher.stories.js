@@ -57,9 +57,9 @@ const Template = (args) => {
   );
 };
 
-export const ExampleConfig = Template.bind({});
-ExampleConfig.parameters = {};
-ExampleConfig.args = {
+export const BackgroundSwitcher = Template.bind({});
+BackgroundSwitcher.parameters = {};
+BackgroundSwitcher.args = {
   url: "https://www.wms.nrw.de/geobasis/wms_nw_uraufnahme",
   layer: "nw_uraufnahme_rw",
   layerVisible: true,
