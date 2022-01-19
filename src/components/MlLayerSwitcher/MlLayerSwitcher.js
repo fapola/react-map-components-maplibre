@@ -143,7 +143,7 @@ const MlLayerSwitcher = (props) => {
         <CardContent>
           {showBaseSources && (
             <Box sx={{ minHeight: "150px" }}>
-              <Typography variant="h6">{t(props.baseSourceConfig.label || "Map type")}</Typography>
+              <Typography variant="h6">{t(props.baseSourceConfig.label || "Background Data")}</Typography>
               <Divider />
               <Box sx={{ display: "flex", paddingTop: "1rem" }}>
                 {props.baseSourceConfig.layers.map(({ src, label, layerId }) => {
@@ -166,7 +166,7 @@ const MlLayerSwitcher = (props) => {
           )}
           {showDetailLayer && (
             <Box sx={{ minHeight: "150px" }}>
-              <Typography variant="h6">{t("Map details")}</Typography>
+              <Typography variant="h6">{t("Layers")}</Typography>
               <Divider />
               <Box sx={{ display: "flex", paddingTop: "1rem" }}>
                 {props.detailLayerConfig.layers.map(({ src, label, layerId }) => {
