@@ -9,35 +9,26 @@ import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, Typography, Box } from "@mui/material";
 //Internal
-import { MapContext } from "@mapcomponents/react-core";
 import LayerBox from "./components/LayerBox";
 import Divider from "@mui/material/Divider";
 import useMapState from "../../hooks/useMapState";
+import useMap from "../../hooks/useMap";
 /**
  * @component
  *
  *
  */
 const MlLayerSwitcher = (props) => {
-  const mapContext = useContext(MapContext);
+  const mapHook  = useMap({ mapId: props.mapId});
   const showBaseSources = !!props.baseSourceConfig?.layers?.length;
   const showDetailLayer = !!props.detailLayerConfig?.layers?.length;
-  const { layers } = useMapState({
-    mapId: props.mapId,
-    watch: {
-      viewport: false,
-      layers: true,
-      sources: false,
-    },
-    filter: {},
-  });
   const [activeLayers, setActiveLayers] = useState([]);
   const [activeDetailLayers, setActiveDetailLayers] = useState([]);
   const { t } = useTranslation();
 
   useEffect(() => {
     //Set base state to activate only the first layer
-    if (mapContext.map) {
+    if (mapHook.map) {
       const disableAllButFirst = (config, i) => {
         const layers = getLayerListFromId(config.layerId);
         const visible = i === 0 ? "visible" : "none";
@@ -52,25 +43,19 @@ const MlLayerSwitcher = (props) => {
       props.baseSourceConfig.layers.forEach((config, i) => disableAllButFirst(config, i));
       props.detailLayerConfig.layers.forEach((config, i) => disableAllButFirst(config, i));
     }
-    return () => {
-      // This is the cleanup function, it is called when this react component is removed from react-dom
-      // try to remove anything this component has added to the MapLibre-gl instance
-      // e.g.: remove the layer
-      // mapContext.getMap(props.mapId).removeLayer(layerRef.current);
-      // check for the existence of map.style before calling getLayer or getSource
-    };
-  }, [mapContext.map]);
+  }, [mapHook.map])
 
+  // useEffect watching for layers changing
   useEffect(() => {
-    if (mapContext.map?.style?._layers) {
+    if (mapHook.map?.style?._layers) {
       let newactiveLayers = [];
       let newactiveDetailLayers = [];
       props.baseSourceConfig.layers.forEach((layerConfig) => {
         const layers = getLayerListFromId(layerConfig.layerId);
 
         layers.forEach((layer) => {
-          const visibilty = mapContext.map?.getLayoutProperty(layer, "visibility");
-          if (mapContext.map.baseLayers.indexOf(layer) !== -1) {
+          const visibilty = mapHook.map?.getLayoutProperty(layer, "visibility");
+          if (mapHook.map.baseLayers.indexOf(layer) !== -1) {
             layer = "styleBase";
           }
 
@@ -80,7 +65,7 @@ const MlLayerSwitcher = (props) => {
         });
       });
       props.detailLayerConfig.layers.forEach(({ layerId }) => {
-        const visibilty = mapContext.map?.getLayoutProperty(layerId, "visibility");
+        const visibilty = mapHook.map?.getLayoutProperty(layerId, "visibility");
         if (newactiveDetailLayers.indexOf(layerId) === -1 && visibilty === "visible") {
           newactiveDetailLayers.push(layerId);
         }
@@ -89,10 +74,10 @@ const MlLayerSwitcher = (props) => {
 
       setActiveDetailLayers(newactiveDetailLayers);
     }
-  }, [layers]);
+  }, [mapHook.layers]);
 
   const getLayerListFromId = (id) => {
-    return id === "styleBase" ? mapContext?.map.baseLayers : [id];
+    return id === "styleBase" ? mapHook?.map.baseLayers : [id];
   };
 
   const handleDetailLayerBoxClick = (layerId) => {
@@ -101,7 +86,7 @@ const MlLayerSwitcher = (props) => {
       handleLayerBoxClick(cfg.linkedTo);
     }
     const nextVisiblityClickedLayer =
-      mapContext?.map.getLayer(layerId)?.getLayoutProperty("visibility") === "visible"
+      mapHook?.map.getLayer(layerId)?.getLayoutProperty("visibility") === "visible"
         ? "none"
         : "visible";
     changeLayerState(layerId, nextVisiblityClickedLayer);
@@ -110,7 +95,7 @@ const MlLayerSwitcher = (props) => {
   const handleLayerBoxClick = (id) => {
     let layers = getLayerListFromId(id);
     const nextVisiblityClickedLayer =
-      mapContext?.map.getLayer(layers[0])?.getLayoutProperty("visibility") === "visible"
+      mapHook?.map.getLayer(layers[0])?.getLayoutProperty("visibility") === "visible"
         ? "none"
         : "visible";
 
@@ -134,7 +119,7 @@ const MlLayerSwitcher = (props) => {
   };
 
   const changeLayerState = (layer, visible = "none") => {
-    mapContext.map?.setLayoutProperty(layer, "visibility", visible);
+    mapHook.map?.setLayoutProperty(layer, "visibility", visible);
   };
 
   return (
