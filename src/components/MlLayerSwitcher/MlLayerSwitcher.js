@@ -4,14 +4,13 @@ import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
 import "./MlLayerSwitcher.css";
 //External
-import { useEffect, useContext, useState } from "react";
+import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, Typography, Box } from "@mui/material";
 //Internal
 import LayerBox from "./components/LayerBox";
 import Divider from "@mui/material/Divider";
-import useMapState from "../../hooks/useMapState";
 import useMap from "../../hooks/useMap";
 /**
  * @component
