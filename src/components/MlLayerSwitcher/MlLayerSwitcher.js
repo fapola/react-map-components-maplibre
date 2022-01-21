@@ -18,7 +18,7 @@ import useMap from "../../hooks/useMap";
  *
  */
 const MlLayerSwitcher = (props) => {
-  const mapHook  = useMap({ mapId: props.mapId});
+  const mapHook = useMap({ mapId: props.mapId, waitForLayer: false });
   const showBaseSources = !!props.baseSourceConfig?.layers?.length;
   const showDetailLayer = !!props.detailLayerConfig?.layers?.length;
   const [activeLayers, setActiveLayers] = useState([]);
@@ -42,7 +42,7 @@ const MlLayerSwitcher = (props) => {
       props.baseSourceConfig.layers.forEach((config, i) => disableAllButFirst(config, i));
       props.detailLayerConfig.layers.forEach((config, i) => disableAllButFirst(config, i));
     }
-  }, [mapHook.map])
+  }, [mapHook.map]);
 
   // useEffect watching for layers changing
   useEffect(() => {
@@ -127,7 +127,9 @@ const MlLayerSwitcher = (props) => {
         <CardContent>
           {showBaseSources && (
             <Box sx={{ minHeight: "150px" }}>
-              <Typography variant="h6">{t(props.baseSourceConfig.label || "Background Data")}</Typography>
+              <Typography variant="h6">
+                {t(props.baseSourceConfig.label || "Background Data")}
+              </Typography>
               <Divider />
               <Box sx={{ display: "flex", paddingTop: "1rem" }}>
                 {props.baseSourceConfig.layers.map(({ src, label, layerId }) => {
