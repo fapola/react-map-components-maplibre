@@ -1,0 +1,15 @@
+{
+  "name": "MlBackgroundSwitcher",
+  "title": "Background switcher",
+  "description": "",
+  "i18n": {
+    "de": {
+      "title": "Hintergrund wechsler",
+      "description": ""
+    }
+  },
+  "tags": [],
+  "category": "",
+  "type": "component",
+  "price": 0
+}

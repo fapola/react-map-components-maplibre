@@ -6,10 +6,11 @@ import "./MlLayerSwitcher.css";
 //External
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
+// Todo: remove
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, Typography, Box } from "@mui/material";
 //Internal
-import LayerList from "./components/LayerList";
+import BackgroundBox from "./components/BackgroundBox";
 import Divider from "@mui/material/Divider";
 import useMap from "../../hooks/useMap";
 /**
@@ -17,10 +18,11 @@ import useMap from "../../hooks/useMap";
  *
  *
  */
-const MlLayerSwitcher = (props) => {
-  const mapHook = useMap({ mapId: props.mapId, waitForLayer: false });
-  const showDetailLayer = !!props.detailLayerConfig?.layers?.length;
-  const [activeDetailLayers, setActiveDetailLayers] = useState([]);
+const MlBackgroundSwitcher = (props) => {
+  const mapHook = useMap({ mapId: props.mapId, waitForLayer: props.waitForLayer });
+  //TODO: rename Base to Background?
+  const showBaseSources = !!props.baseSourceConfig?.layers?.length;
+  const [activeLayers, setActiveLayers] = useState([]);
   const { t } = useTranslation();
 
   useEffect(() => {
@@ -37,7 +39,7 @@ const MlLayerSwitcher = (props) => {
         });
       };
 
-      props.detailLayerConfig.layers.forEach((config, i) => disableAllButFirst(config, i));
+      props.baseSourceConfig.layers.forEach((config, i) => disableAllButFirst(config, i));
     }
     return () => {
       // This is the cleanup function, it is called when this react component is removed from react-dom
@@ -51,14 +53,22 @@ const MlLayerSwitcher = (props) => {
   // useEffect watching for layers changing
   useEffect(() => {
     if (mapHook.map?.style?._layers) {
-      let newactiveDetailLayers = [];
-      props.detailLayerConfig.layers.forEach(({ layerId }) => {
-        const visibilty = mapHook.map?.getLayoutProperty(layerId, "visibility");
-        if (newactiveDetailLayers.indexOf(layerId) === -1 && visibilty === "visible") {
-          newactiveDetailLayers.push(layerId);
-        }
+      let newactiveLayers = [];
+      props.baseSourceConfig.layers.forEach((layerConfig) => {
+        const layers = getLayerListFromId(layerConfig.layerId);
+
+        layers.forEach((layer) => {
+          const visibilty = mapHook.map?.getLayoutProperty(layer, "visibility");
+          if (mapHook.map.baseLayers.indexOf(layer) !== -1) {
+            layer = "styleBase";
+          }
+
+          if (newactiveLayers.indexOf(layer) === -1 && visibilty === "visible") {
+            newactiveLayers.push(layer);
+          }
+        });
       });
-      setActiveDetailLayers(newactiveDetailLayers);
+      setActiveLayers(newactiveLayers);
     }
   }, [mapHook.layers]);
 
@@ -66,13 +76,30 @@ const MlLayerSwitcher = (props) => {
     return id === "styleBase" ? mapHook?.map.baseLayers : [id];
   };
 
-  const handleDetailLayerBoxClick = (layerId) => {
-
+  const handleLayerBoxClick = (id) => {
+    let layers = getLayerListFromId(id);
     const nextVisiblityClickedLayer =
-      mapHook?.map.getLayer(layerId)?.getLayoutProperty("visibility") === "visible"
+      mapHook?.map.getLayer(layers[0])?.getLayoutProperty("visibility") === "visible"
         ? "none"
         : "visible";
-    changeLayerState(layerId, nextVisiblityClickedLayer);
+
+    props.baseSourceConfig.layers.forEach((config, i) => {
+      let layers = getLayerListFromId(config.layerId);
+      let visible = "none";
+      if (config.layerId === id) {
+        visible = nextVisiblityClickedLayer;
+      }
+
+      //To avoid disabling all base layers we activate the first one
+      if (nextVisiblityClickedLayer === "none" && i === 0) {
+        visible = "visible";
+      }
+      layers.forEach((layer) => {
+        if (layer) {
+          changeLayerState(layer, visible);
+        }
+      });
+    });
   };
 
   const changeLayerState = (layer, visible = "none") => {
@@ -83,22 +110,24 @@ const MlLayerSwitcher = (props) => {
     <>
       <Card sx={{ zIndex: 101, position: "absolute", minWidth: "200px" }}>
         <CardContent>
-          {showDetailLayer && (
+          {showBaseSources && (
             <Box sx={{ minHeight: "150px" }}>
-              <Typography variant="h6">{t("Layers")}</Typography>
+              <Typography variant="h6">
+                {t(props.baseSourceConfig.label || "Background Data")}
+              </Typography>
               <Divider />
               <Box sx={{ display: "flex", paddingTop: "1rem" }}>
-                {props.detailLayerConfig.layers.map(({ src, label, layerId }) => {
+                {props.baseSourceConfig.layers.map(({ src, label, layerId }) => {
                   return (
-                    <LayerList
+                    <BackgroundBox
                       mapId={props.mapId}
-                      activeLayers={activeDetailLayers}
+                      key={layerId}
+                      activeLayers={activeLayers}
                       label={t(label)}
                       layerId={layerId}
-                      key={layerId}
                       thumbnail={src}
                       handleLayerBoxClick={() => {
-                        handleDetailLayerBoxClick(layerId);
+                        handleLayerBoxClick(layerId);
                       }}
                     />
                   );
@@ -112,19 +141,18 @@ const MlLayerSwitcher = (props) => {
   );
 };
 
-MlLayerSwitcher.propTypes = {
-  detailLayerConfig: PropTypes.shape({
+MlBackgroundSwitcher.propTypes = {
+  baseSourceConfig: PropTypes.shape({
     label: PropTypes.string,
     layers: PropTypes.arrayOf(
       PropTypes.shape({
         layerId: PropTypes.string.isRequired,
         src: PropTypes.string,
         label: PropTypes.string.isRequired,
-        linkedTo: PropTypes.string,
       })
     ),
   }),
   mapId: PropTypes.string,
 };
 
-export default MlLayerSwitcher;
+export default MlBackgroundSwitcher;

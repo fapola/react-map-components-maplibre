@@ -1,14 +1,13 @@
 import React from "react";
 import { css } from "@emotion/css";
 import { Box } from "@mui/system";
-import ImageLoader from "../../../ui_components/ImageLoader";
 import useMapState from "../../../hooks/useMapState";
 
 /**
  * @component
  *
  */
-const LayerBox = (props) => {
+const LayerList = (props) => {
   const { layers } = useMapState({
     mapId: props.mapId,
     watch: {
@@ -44,16 +43,6 @@ const LayerBox = (props) => {
           props?.handleLayerBoxClick?.(props.layerId);
         }}
       >
-        <ImageLoader
-          style={{
-            border: "2px solid " + (layers?.[0]?.visible ? "#64c864" : "#fd720f"),
-            borderRadius: "8px",
-            height: "40px",
-            width: "40px",
-          }}
-          src={props.thumbnail}
-        />
-
         <div
           className="mllayerswitcher-layer-text"
           style={{
@@ -71,4 +60,4 @@ const LayerBox = (props) => {
   );
 };
 
-export default LayerBox;
+export default LayerList;
