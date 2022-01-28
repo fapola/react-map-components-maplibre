@@ -76,7 +76,10 @@ const MlBackgroundSwitcher = (props) => {
     return id === "styleBase" ? mapHook?.map.baseLayers : [id];
   };
 
-  const handleLayerBoxClick = (id) => {
+  const handleBackgroundBoxClick = (id) => {
+    if (!mapHook.map) {
+      return
+    }
     let layers = getLayerListFromId(id);
     const nextVisiblityClickedLayer =
       mapHook?.map.getLayer(layers[0])?.getLayoutProperty("visibility") === "visible"
@@ -126,8 +129,8 @@ const MlBackgroundSwitcher = (props) => {
                       label={t(label)}
                       layerId={layerId}
                       thumbnail={src}
-                      handleLayerBoxClick={() => {
-                        handleLayerBoxClick(layerId);
+                      handleBackgroundBoxClick={() => {
+                        handleBackgroundBoxClick(layerId);
                       }}
                     />
                   );

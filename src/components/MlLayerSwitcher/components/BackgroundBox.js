@@ -41,7 +41,7 @@ const BackgroundBox = (props) => {
           cursor: "pointer",
         }}
         onClick={() => {
-          props?.handleLayerBoxClick?.(props.layerId);
+          props?.handleBackgroundBoxClick?.(props.layerId);
         }}
       >
         <ImageLoader

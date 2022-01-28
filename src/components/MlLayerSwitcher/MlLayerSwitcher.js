@@ -67,6 +67,9 @@ const MlLayerSwitcher = (props) => {
   };
 
   const handleDetailLayerBoxClick = (layerId) => {
+    if (!mapHook.map) {
+      return
+    }
 
     const nextVisiblityClickedLayer =
       mapHook?.map.getLayer(layerId)?.getLayoutProperty("visibility") === "visible"

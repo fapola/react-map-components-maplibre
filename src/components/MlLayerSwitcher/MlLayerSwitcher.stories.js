@@ -47,7 +47,6 @@ LayerSwitcher.args = {
     minzoom: 13,
     maxzoom: 20,
   },
-  baseSourcesActive: true,
   detailLayerConfig: {
     layers: [
       {
