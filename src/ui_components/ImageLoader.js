@@ -35,44 +35,25 @@ const ImageLoader = (props) => {
     display: "flex",
   };
 
-  const LoadingImage = () => {
-    return (
-      <Box className={props.className} sx={{ ...boxStyle, ...props.style }}>
-        <CircularProgress />
-      </Box>
-    );
-  };
-
-  const ReadyImage = () => {
-    return (
-      <img
-        className={props.className}
+  return <>
+    {state === "ready" &&
+      <img className={props.className}
         style={{ ...boxStyle, ...props.style }}
         src={props.src}
         alt={props.alt || ""}
       />
-    );
-  };
-  const ErrorImage = () => {
-    return (
+    }
+    {state === "error" &&
       <Box className={props.className} sx={{ boxStyle, ...props.style }}>
         <ErrorIcon sx={{ display: "block", margin: "auto" }} />
-      </Box>
-    );
-  };
-
-  const renderImage = (state) => {
-    switch (state) {
-      case "ready":
-        return <ReadyImage />;
-      case "error":
-        return <ErrorImage />;
-      default:
-        return <LoadingImage />;
+      </Box>   
     }
-  };
-
-  return <>{renderImage(state)}</>;
+    {state !== "ready" && state !== "error" &&
+      <Box className={props.className} sx={{ ...boxStyle, ...props.style }}>
+        <CircularProgress />
+      </Box>
+    }
+  </>;
 };
 
 export default ImageLoader
