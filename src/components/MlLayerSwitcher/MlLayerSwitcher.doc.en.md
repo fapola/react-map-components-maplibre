@@ -1,3 +1,0 @@
-# Component Description
-
-Description Text
