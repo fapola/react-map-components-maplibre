@@ -1,6 +1,10 @@
 import { useRef, useEffect } from "react";
 import PropTypes from "prop-types";
 import useMap from "../../hooks/useMap";
+import { Card, CardContent, Typography, Checkbox, FormGroup, FormControlLabel } from "@mui/material"
+import { TreeView, TreeItem } from '@mui/lab';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 /**
  * Component providing a Layertree to aktivate/deactivate Layers of different Types
@@ -21,7 +25,51 @@ const MlLayerTree = (props) => {
     initializedRef.current = true;
   }, [mapHook.map, mapHook.mapIsReady, props.mapId]);
 
-  return <></>;
+  const handleLayerClick = (layerId) => {
+    if (!mapHook.map) {
+      return
+    }
+    const nextVisibleClickedLayer = mapHook?.map.getLayer(layerId)?.getLayoutProperty("visibility") === "visible"
+      ? "none"
+      : "visible";
+
+    mapHook.map?.setLayoutProperty(layerId, "visibility", nextVisibleClickedLayer);
+    console.log(layerId)
+  }
+
+
+  return (
+    <>
+      <Card sx={{ zIndex: 101, position: "absolute", minWidth: "200px" }}>
+        <CardContent>
+          <Typography>Layertree</Typography>
+          <TreeView
+            aria-label="file system navigator"
+            defaultCollapseIcon={<ExpandMoreIcon />}
+            defaultExpandIcon={<ChevronRightIcon />}
+            sx={{ height: 340, flexGrow: 1, maxWidth: 500 }}
+          >
+            <TreeItem nodeId="1" label="Group1">
+              <TreeItem nodeId="2" label={
+                <FormGroup>
+                  <FormControlLabel control={<Checkbox defaultChecked onChange=
+                    {() => { handleLayerClick("geojson1") }} />} label="Line" />
+                </FormGroup>
+              } />
+            </TreeItem>
+            <TreeItem nodeId="3" label="Group2">
+              <TreeItem nodeId="4" label={
+                <FormGroup>
+                  <FormControlLabel control={<Checkbox defaultChecked onChange=
+                    {() => { handleLayerClick("geojson2") }} />} label="Polygon" />
+                </FormGroup>
+              } />
+            </TreeItem>
+          </TreeView>
+        </CardContent>
+      </Card>
+    </>
+  )
 };
 
 MlLayerTree.defaultProps = {

@@ -20,16 +20,17 @@ const Template = (args) => {
     <>
       <MlGeoJsonLayer
         type="line"
-        layout={{ visibility: args.geojsonLayerVisible ? "visible" : "none" }}
+        layout={{ visibility: args.geojsonLayerOneVisible ? "visible" : "none" }}
         geojson={line_sample}
         layerId="geojson1"
       />
       <MlGeoJsonLayer
         type="fill"
-        layout={{ visibility: args.geojsonLayerVisible ? "visible" : "none" }}
+        layout={{ visibility: args.geojsonLayerTwoVisible ? "visible" : "none" }}
         geojson={polygon_sample}
         layerId="geojson2"
       />
+
       <MlLayerTree
         layers={args.layer}
       />
@@ -41,7 +42,8 @@ const Template = (args) => {
 export const LayerTree = Template.bind({});
 LayerTree.parameters = {};
 LayerTree.args = {
-  geojsonLayerVisible: true,
+  geojsonLayerOneVisible: true,
+  geojsonLayerTwoVisible: true,
   layers: [
     {
       layerId: "geojson1",

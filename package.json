@@ -14,6 +14,7 @@
     "@mapbox/mapbox-gl-sync-move": "^0.3.0",
     "@mapcomponents/react-core": "^0.1.7",
     "@mui/icons-material": "^5.0.1",
+    "@mui/lab": "^5.0.0-alpha.68",
     "@mui/material": "5.0.0",
     "@mui/styles": "^5.0.1",
     "@turf/turf": "^6.5.0",
