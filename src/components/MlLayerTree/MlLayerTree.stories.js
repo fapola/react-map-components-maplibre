@@ -41,7 +41,11 @@ const Template = (args) => {
         layerId="geojson3"
       />
 
-      <MlVectorTileLayer {...args} />
+      <MlVectorTileLayer {...{
+        url: args.vectorUrl,
+        mapId: args.mapId,
+        layers: args.vectorLayers,
+      }} />
 
       <MlLayerTree
         layers={args.treeLayers}
@@ -56,29 +60,35 @@ LayerTree.parameters = {};
 LayerTree.args = {
   geojsonLayerOneVisible: true,
   geojsonLayerTwoVisible: true,
-  treeLayers: [
+  treeLayersConfig: [
     {
       layerId: "geojson1",
+      group: "Group1",
       label: "River",
       active: true,
-      type: "line"
     },
     {
       layerId: "geojson2",
+      group: "Group1",
       label: "Road",
       active: true,
-      type: "line"
     },
     {
       layerId: "geojson3",
+      group: "Group2",
       label: "City Polygon",
       active: true,
-      type: "fill"
+    },
+    {
+      layerId: "vectorLayer1",
+      group: "Group3",
+      label: "Vector Landuse",
+      active: true,
     }
   ],
-  url:
+  vectorUrl:
     "https://wms.wheregroup.com/tileserver/tile/tileserver.php?/europe-0-14/index.json?/europe-0-14/{z}/{x}/{y}.pbf",
-  layers: {
+  vectorLayers: {
     landuseLine: {
       "source-layer": "landuse",
       layout: {

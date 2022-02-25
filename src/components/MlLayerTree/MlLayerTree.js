@@ -46,6 +46,7 @@ const MlLayerTree = (props) => {
           <TreeView
             aria-label="file system navigator"
             defaultCollapseIcon={<ExpandMoreIcon />}
+            defaultExpanded={['1']}
             defaultExpandIcon={<ChevronRightIcon />}
             sx={{ height: 340, flexGrow: 1, maxWidth: 500 }}
           >
