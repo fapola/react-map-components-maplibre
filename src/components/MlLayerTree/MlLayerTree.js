@@ -53,13 +53,13 @@ const MlLayerTree = (props) => {
               <TreeItem nodeId="2" label={
                 <FormGroup>
                   <FormControlLabel control={<Checkbox defaultChecked onChange=
-                    {() => { handleLayerClick("geojson1") }} />} label="Fluss" />
+                    {() => { handleLayerClick("geojson1") }} />} label="River" />
                 </FormGroup>
               } />
               <TreeItem nodeId="2" label={
                 <FormGroup>
                   <FormControlLabel control={<Checkbox defaultChecked onChange=
-                    {() => { handleLayerClick("geojson2") }} />} label="Straße" />
+                    {() => { handleLayerClick("geojson2") }} />} label="Road" />
                 </FormGroup>
               } />
             </TreeItem>
@@ -67,7 +67,7 @@ const MlLayerTree = (props) => {
               <TreeItem nodeId="4" label={
                 <FormGroup>
                   <FormControlLabel control={<Checkbox defaultChecked onChange=
-                    {() => { handleLayerClick("geojson3") }} />} label="Stadtteil" />
+                    {() => { handleLayerClick("geojson3") }} />} label="City Polygon" />
                 </FormGroup>
               } />
             </TreeItem>
