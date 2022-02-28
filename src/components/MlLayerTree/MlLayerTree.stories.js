@@ -48,7 +48,7 @@ const Template = (args) => {
       }} />
 
       <MlLayerTree
-        layers={args.treeLayers}
+        treeLayersConfig={args.treeLayersConfig}
       />
     </>
   )
@@ -60,32 +60,53 @@ LayerTree.parameters = {};
 LayerTree.args = {
   geojsonLayerOneVisible: true,
   geojsonLayerTwoVisible: true,
-  treeLayersConfig: [
-    {
-      layerId: "geojson1",
-      group: "Group1",
-      label: "River",
-      active: true,
-    },
-    {
-      layerId: "geojson2",
-      group: "Group1",
-      label: "Road",
-      active: true,
-    },
-    {
-      layerId: "geojson3",
-      group: "Group2",
-      label: "City Polygon",
-      active: true,
-    },
-    {
-      layerId: "vectorLayer1",
-      group: "Group3",
-      label: "Vector Landuse",
-      active: true,
-    }
-  ],
+
+  treeLayersConfig: {
+    groups: [
+      {
+        label: "Group1",
+        id: "0",
+        expandet: true,
+        layers: [
+          {
+            id: "geojson1",
+            label: "River",
+            active: true,
+          },
+          {
+            id: "geojson2",
+            label: "Road",
+            active: true,
+          }
+        ]
+      },
+      {
+        label: "Group2",
+        id: "1",
+        expandet: false,
+        layers: [
+          {
+            id: "geojson3",
+            label: "City Polygon",
+            active: true,
+          },
+        ]
+      },
+      {
+        label: "Group3",
+        id: "2",
+        expandet: true,
+        layers: [
+          {
+            id: "vectorLayer1",
+            label: "Vector Landuse",
+            active: true,
+          },
+        ]
+      },
+    ],
+
+  },
   vectorUrl:
     "https://wms.wheregroup.com/tileserver/tile/tileserver.php?/europe-0-14/index.json?/europe-0-14/{z}/{x}/{y}.pbf",
   vectorLayers: {

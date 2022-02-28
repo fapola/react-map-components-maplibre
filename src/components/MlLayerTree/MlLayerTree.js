@@ -5,6 +5,7 @@ import { Card, CardContent, Typography, Checkbox, FormGroup, FormControlLabel } 
 import { TreeView, TreeItem } from '@mui/lab';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import LayerTree from './components/LayerTree'
 
 /**
  * Component providing a Layertree to aktivate/deactivate Layers of different Types
@@ -25,61 +26,21 @@ const MlLayerTree = (props) => {
     initializedRef.current = true;
   }, [mapHook.map, mapHook.mapIsReady, props.mapId]);
 
-  const handleLayerClick = (layerId) => {
-    if (!mapHook.map) {
-      return
-    }
-    const nextVisibleClickedLayer = mapHook?.map.getLayer(layerId)?.getLayoutProperty("visibility") === "visible"
-      ? "none"
-      : "visible";
-
-    mapHook.map?.setLayoutProperty(layerId, "visibility", nextVisibleClickedLayer);
-    console.log(layerId)
-  }
-
-
   return (
     <>
       <Card sx={{ zIndex: 101, position: "absolute", minWidth: "200px" }}>
         <CardContent>
           <Typography>Layertree</Typography>
           <TreeView
-            aria-label="file system navigator"
+            aria-label="Layertree"
             defaultCollapseIcon={<ExpandMoreIcon />}
             defaultExpanded={['1']}
             defaultExpandIcon={<ChevronRightIcon />}
             sx={{ height: 340, flexGrow: 1, maxWidth: 500 }}
           >
-            <TreeItem nodeId="1" label="Group1">
-              <TreeItem nodeId="2" label={
-                <FormGroup>
-                  <FormControlLabel control={<Checkbox defaultChecked onChange=
-                    {() => { handleLayerClick("geojson1") }} />} label="River" />
-                </FormGroup>
-              } />
-              <TreeItem nodeId="2" label={
-                <FormGroup>
-                  <FormControlLabel control={<Checkbox defaultChecked onChange=
-                    {() => { handleLayerClick("geojson2") }} />} label="Road" />
-                </FormGroup>
-              } />
-            </TreeItem>
-            <TreeItem nodeId="3" label="Group2">
-              <TreeItem nodeId="4" label={
-                <FormGroup>
-                  <FormControlLabel control={<Checkbox defaultChecked onChange=
-                    {() => { handleLayerClick("geojson3") }} />} label="City Polygon" />
-                </FormGroup>
-              } />
-            </TreeItem>
-            <TreeItem nodeId="5" label="Group3">
-              <TreeItem nodeId="6" label={
-                <FormGroup>
-                  <FormControlLabel control={<Checkbox defaultChecked onChange=
-                    {() => { handleLayerClick("vetorTile") }} />} label="Vector Landuse" />
-                </FormGroup>
-              } />
-            </TreeItem>
+
+            <LayerTree {...props} />
+
           </TreeView>
         </CardContent>
       </Card>
