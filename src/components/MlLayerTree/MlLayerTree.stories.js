@@ -111,6 +111,7 @@ LayerTree.args = {
     "https://wms.wheregroup.com/tileserver/tile/tileserver.php?/europe-0-14/index.json?/europe-0-14/{z}/{x}/{y}.pbf",
   vectorLayers: {
     landuseLine: {
+      id: "vectorLayer1",
       "source-layer": "landuse",
       layout: {
         "line-cap": "round",

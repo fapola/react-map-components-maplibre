@@ -23,9 +23,8 @@ const LayerTree = (config) => {
 const Layers = (layers, config) => {
 
   const mapHook = useMap({ mapId: config.mapId, waitForLayer: false });
-  const handleLayerClick = (layer, e) => {
+  const handleLayerClick = (layer) => {
 
-    console.log(e.target.checked)
     if (!mapHook.map) {
       console.log("no map")
       return
@@ -43,7 +42,7 @@ const Layers = (layers, config) => {
         <TreeItem key={layer.id} nodeId={layer.id} label={
           <FormGroup >
             <FormControlLabel control={<Checkbox defaultChecked={layer.active} onChange=
-              {(e) => { handleLayerClick(layer, e) }} />} label={layer.label} />
+              {() => { handleLayerClick(layer) }} />} label={layer.label} />
           </FormGroup>
         } />
       )}

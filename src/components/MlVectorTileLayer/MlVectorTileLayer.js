@@ -52,9 +52,10 @@ const MlVectorTileLayer = (props) => {
     });
 
     for (let key in props.layers) {
-      let layerId = layerName + "_" + key + "_" + idSuffixRef.current;
+      let layerId
+      props.layers[key].id ? layerId = props.layers[key].id :
+        layerId = layerName + "_" + key + "_" + idSuffixRef.current;
       layerIdsRef.current[key] = layerId;
-
       mapRef.current.addLayer({
         id: layerId,
         source: sourceName + idSuffixRef.current,
