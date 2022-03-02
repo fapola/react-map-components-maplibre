@@ -2,6 +2,7 @@ import MlLayerTree from "./MlLayerTree";
 import mapContextDecorator from "../../decorators/MapContextDecorator";
 import MlGeoJsonLayer from "../MlGeoJsonLayer/MlGeoJsonLayer";
 import MlVectorTileLayer from "../MlVectorTileLayer/MlVectorTileLayer";
+import MlWmsLayer from "../MlWmsLayer/MlWmsLayer";
 import MlNavigationTools from "../MlNavigationTools/MlNavigationTools"
 import line_sample from "./assets/line_sample.json"
 import line_sample2 from "./assets/line_sample2.json"
@@ -22,6 +23,15 @@ const Template = (args) => {
   return (
     <>
       <MlNavigationTools />
+
+      <MlWmsLayer
+        key="wmsLayerKitas"
+        mapId={args.mapId}
+        url="https://www.wms.nrw.de/wms/kitas"
+        urlParameters={{ ...args.wmsUrlParameters, layers: "kitasNRW" }}
+        visible={true}
+      />
+
       <MlGeoJsonLayer
         type="line"
         layout={{ visibility: args.geojsonLayerOneVisible ? "visible" : "none" }}
@@ -60,6 +70,9 @@ LayerTree.parameters = {};
 LayerTree.args = {
   geojsonLayerOneVisible: true,
   geojsonLayerTwoVisible: true,
+  wmsUrlParameters: {
+    TRANSPARENT: "TRUE",
+  },
 
   treeLayersConfig: {
     groups: [
@@ -100,6 +113,18 @@ LayerTree.args = {
           {
             id: "vectorLayer1",
             label: "Vector Landuse",
+            active: true,
+          },
+        ]
+      },
+      {
+        label: "Group4",
+        id: "3",
+        expandet: true,
+        layers: [
+          {
+            id: "wmsLayerKitas",
+            label: "WMS Kitas Nrw",
             active: true,
           },
         ]
